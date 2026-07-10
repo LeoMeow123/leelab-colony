@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lee Lab Mouse Colony</title>
+<style>
+  :root{--bg:#0d0f14;--bg2:#13161e;--bg3:#1a1e2a;--border:rgba(255,255,255,0.1);--border2:rgba(255,255,255,0.16);
+    --text:#e8eaf0;--muted:#7a7f94;--accent:#4f9cf9;--green:#34d399;--red:#ef4444;--amber:#fbbf24;--purple:#a78bfa}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+  a{color:var(--accent)}
+  .hidden{display:none!important}
+  input,select,button,textarea{font-family:inherit;font-size:13px}
+  .in{background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);padding:7px 10px;outline:none;width:100%}
+  .in:focus{border-color:var(--accent)}
+  label{font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px}
+  .btn{background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);padding:7px 13px;font-weight:600;cursor:pointer}
+  .btn:hover{background:#232838}
+  .btn.p{background:var(--accent);color:#04101f;border-color:var(--accent)}
+  .btn.g{color:var(--green);border-color:rgba(52,211,153,.4)}
+  .btn.r{color:var(--red);border-color:rgba(239,68,68,.4)}
+  .btn.sm{padding:4px 9px;font-size:12px}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+
+  /* centered card screens (setup/login) */
+  .center{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:400px}
+  .card h1{font-size:19px;margin-bottom:4px}
+  .card .sub{color:var(--muted);font-size:12px;margin-bottom:18px}
+  .card .field{margin-bottom:12px}
+  .err{color:var(--red);font-size:12px;margin-top:8px;min-height:16px}
+
+  /* app shell */
+  header{display:flex;align-items:center;gap:14px;padding:10px 16px;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:20}
+  header h1{font-size:15px;font-weight:700}
+  header h1 .em{color:var(--muted);font-weight:400;font-size:12px}
+  .tabs{display:flex;gap:4px}
+  .tab{padding:6px 12px;border-radius:8px;background:none;border:1px solid transparent;color:var(--muted);font-weight:600;cursor:pointer}
+  .tab.active{color:var(--accent);border-color:var(--accent);background:rgba(79,156,249,.1)}
+  .who{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)}
+  .who b{color:var(--text)}
+  .pill{font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(167,139,250,.15);color:var(--purple);font-weight:700;text-transform:uppercase}
+
+  .wrap{padding:14px 16px;max-width:1200px;margin:0 auto}
+
+  /* filter bar */
+  .filters{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px}
+  .filters .f{min-width:110px}
+  .filters .f.grow{flex:1;min-width:180px}
+  .filters .f label{margin-bottom:2px}
+  .filters .in{padding:6px 8px}
+
+  /* table */
+  .tablewrap{overflow-x:auto;border:1px solid var(--border);border-radius:12px;background:var(--bg2)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;padding:9px 10px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none}
+  th .ar{color:var(--accent)}
+  td{padding:8px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  tbody tr{cursor:pointer}
+  tbody tr:hover{background:var(--bg3)}
+  .badge{font-size:10px;padding:2px 7px;border-radius:9px;font-weight:700}
+  .b-alive{background:rgba(52,211,153,.15);color:var(--green)}
+  .b-dead,.b-sacrificed{background:rgba(122,127,148,.2);color:var(--muted)}
+  .b-transferred{background:rgba(79,156,249,.15);color:var(--accent)}
+  .b-stale{background:rgba(251,191,36,.15);color:var(--amber);margin-left:5px}
+  .cohort{font-weight:600}
+  .pager{display:flex;align-items:center;gap:10px;justify-content:flex-end;padding:10px;color:var(--muted);font-size:12px}
+  .empty{text-align:center;color:var(--muted);padding:40px}
+
+  /* modal */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:50;display:none;align-items:flex-start;justify-content:center;padding:24px;overflow:auto}
+  .overlay.open{display:flex}
+  .modal{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;width:100%;max-width:640px}
+  .modal h2{font-size:17px;margin-bottom:2px}
+  .modal .mid{color:var(--muted);font-size:12px;font-family:ui-monospace,monospace;margin-bottom:14px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  .kv{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px}
+  .kv .k{color:var(--muted)}
+  .field{margin-bottom:10px}
+  .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+  .timeline{margin-top:8px}
+  .tl-item{display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px}
+  .tl-item .dt{color:var(--muted);font-family:ui-monospace,monospace;min-width:92px;font-size:12px}
+  .tl-item .tag{font-size:10px;padding:1px 6px;border-radius:8px;background:var(--bg3);color:var(--muted);font-weight:700;height:fit-content}
+  .section-h{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:14px 0 6px}
+  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:9px 16px;z-index:100;font-size:13px;opacity:0;transition:opacity .2s}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+
+<!-- SETUP -->
+<div class="center" id="setup">
+  <div class="card">
+    <h1>🐭 Colony DB — setup</h1>
+    <div class="sub">Paste this project's Supabase URL and publishable/anon key. Stored in this browser.</div>
+    <div class="field"><label>Supabase URL</label><input class="in" id="cfgUrl" placeholder="https://xxxx.supabase.co"></div>
+    <div class="field"><label>Anon / publishable key</label><input class="in" id="cfgKey" placeholder="sb_publishable_… or eyJ…"></div>
+    <button class="btn p" style="width:100%" id="cfgSave">Save & continue</button>
+    <div class="err" id="cfgErr"></div>
+  </div>
+</div>
+
+<!-- LOGIN -->
+<div class="center hidden" id="login">
+  <div class="card">
+    <h1>🐭 Lee Lab Colony</h1>
+    <div class="sub">Pick your name and enter the shared lab password.</div>
+    <div class="field"><label>Name</label><select class="in" id="loginName"></select></div>
+    <div class="field"><label>Password</label><input class="in" id="loginPass" type="password" placeholder="shared password"></div>
+    <button class="btn p" style="width:100%" id="loginBtn">Sign in</button>
+    <div class="err" id="loginErr"></div>
+    <div style="margin-top:14px;text-align:center"><a href="#" id="reconfig" style="font-size:11px;color:var(--muted)">reconfigure connection</a></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="hidden" id="app">
+  <header>
+    <h1>🐭 Lee Lab Colony <span class="em" id="mouseCountHdr"></span></h1>
+    <div class="tabs">
+      <button class="tab active" data-tab="colony">Colony</button>
+      <button class="tab" data-tab="add">＋ Add mouse</button>
+      <button class="tab" data-tab="people">People</button>
+    </div>
+    <div class="who"><span>👤 <b id="whoName"></b> <span class="pill" id="whoRole"></span></span><button class="btn sm" id="logout">Logout</button></div>
+  </header>
+
+  <!-- COLONY -->
+  <div class="wrap" id="tab-colony">
+    <div class="filters">
+      <div class="f grow"><label>Search (tag / genotype)</label><input class="in" id="fSearch" placeholder="e.g. 4471 or APPswe"></div>
+      <div class="f"><label>Sex</label><select class="in" id="fSex"><option value="">any</option><option>M</option><option>F</option><option>U</option></select></div>
+      <div class="f"><label>Cohort</label><select class="in" id="fCohort"><option value="">any</option></select></div>
+      <div class="f"><label>Status</label><select class="in" id="fStatus"><option value="alive">alive</option><option value="">any</option><option>sacrificed</option><option>transferred</option><option>dead</option><option>unknown</option></select></div>
+      <div class="f"><label>Age ≥ (mo)</label><input class="in" id="fAgeMin" type="number" step="0.1" placeholder="min"></div>
+      <div class="f"><label>Age ≤ (mo)</label><input class="in" id="fAgeMax" type="number" step="0.1" placeholder="max"></div>
+      <div class="f"><label>Owner</label><select class="in" id="fOwner"><option value="">any</option></select></div>
+      <div class="f"><label>Location</label><input class="in" id="fLoc" placeholder="room / rack"></div>
+      <div class="f"><button class="btn r sm" id="fClear" title="Clear filters">clear</button> <button class="btn g sm" id="exportCsv">CSV</button></div>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr id="thead"></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div class="pager"><span id="pageInfo"></span><button class="btn sm" id="prev">‹ Prev</button><button class="btn sm" id="next">Next ›</button></div>
+    </div>
+  </div>
+
+  <!-- ADD -->
+  <div class="wrap hidden" id="tab-add">
+    <div class="card" style="max-width:640px">
+      <h1 style="font-size:17px;margin-bottom:14px">Add a mouse</h1>
+      <div id="addForm"></div>
+      <div class="modal-actions"><button class="btn p" id="addSave">Add mouse</button></div>
+      <div class="err" id="addErr"></div>
+    </div>
+  </div>
+
+  <!-- PEOPLE -->
+  <div class="wrap hidden" id="tab-people">
+    <div class="card" style="max-width:640px">
+      <h1 style="font-size:17px;margin-bottom:6px">People</h1>
+      <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:12px">Everyone logs in with the shared password; identity is who they pick here.</div>
+      <div id="peopleList"></div>
+      <div class="grid3" style="margin-top:12px;align-items:end">
+        <div><label>Full name</label><input class="in" id="newPersonName" placeholder="Jane Doe"></div>
+        <div><label>Role</label><select class="in" id="newPersonRole"><option value="member">member</option><option value="manager">manager</option><option value="pi">pi</option></select></div>
+        <div><button class="btn p" id="addPerson">Add person</button></div>
+      </div>
+      <div class="section-h" style="margin-top:18px">Shared password</div>
+      <div class="grid3" style="align-items:end">
+        <div style="grid-column:1/3"><label>New shared password</label><input class="in" id="newPass" type="password" placeholder="leave blank to keep"></div>
+        <div><button class="btn" id="setPass">Update</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MOUSE DETAIL / EDIT MODAL -->
+<div class="overlay" id="detailOverlay">
+  <div class="modal" id="detailModal"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+const $=id=>document.getElementById(id);
+// attribute-safe: also escapes quotes (used inside value="..." / class="...")
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// ---------- config ----------
+const HARD_URL='';   // optional: hardcode after first deploy
+const HARD_KEY='';
+let URLB = HARD_URL || localStorage.getItem('mc:url') || '';
+let KEY  = HARD_KEY || localStorage.getItem('mc:key') || '';
+let USER = null;
+try{ USER=JSON.parse(localStorage.getItem('mc:user')); }catch(_){}
+
+function configured(){ return !!(URLB && KEY); }
+function authHeaders(extra){
+  // supabase-js sends BOTH apikey and Authorization; the anon/publishable key
+  // works as the Bearer value for classic JWT and new sb_publishable_ keys alike.
+  return Object.assign({apikey:KEY,Authorization:'Bearer '+KEY,'Content-Type':'application/json'},extra||{});
+}
+async function api(path,opts){
+  opts=opts||{};
+  const res=await fetch(URLB.replace(/\/$/,'')+'/rest/v1/'+path,{
+    method:opts.method||'GET',
+    headers:authHeaders(opts.headers),
+    body:opts.body?JSON.stringify(opts.body):undefined,
+  });
+  const range=res.headers.get('content-range');
+  let data=null; try{ data=await res.json(); }catch(_){}
+  if(!res.ok){ throw new Error((data&&(data.message||data.hint))||('HTTP '+res.status)); }
+  return {data,range};
+}
+async function sha256(s){ const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));
+  return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join(''); }
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1800); }
+
+// ---------- caches ----------
+let USERS=[], COHORTS=['WT','APP','Tau','PD'];
+async function loadRefs(){
+  try{ const u=await api('app_users?select=id,full_name,role,is_active&order=full_name'); USERS=u.data||[]; }catch(_){ USERS=[]; }
+  try{ const c=await api('app_config?key=eq.cohorts&select=value'); if(c.data&&c.data[0]&&c.data[0].value) COHORTS=c.data[0].value.split(',').map(s=>s.trim()).filter(Boolean); }catch(_){}
+}
+const userName=id=>{ const u=USERS.find(x=>x.id===id); return u?u.full_name:''; };
+function ownerOptions(sel){ return '<option value="">—</option>'+USERS.map(u=>`<option value="${u.id}"${u.id===sel?' selected':''}>${esc(u.full_name)}</option>`).join(''); }
+function cohortOptions(sel){ return '<option value="">—</option>'+COHORTS.map(c=>`<option${c===sel?' selected':''}>${esc(c)}</option>`).join(''); }
+
+// ---------- audit ----------
+async function audit(table,rowId,action,oldRow,newRow){
+  try{ await api('audit_log',{method:'POST',body:[{table_name:table,row_id:rowId,action,actor_id:USER&&USER.id,old_row:oldRow||null,new_row:newRow||null}]}); }catch(_){}
+}
+
+// =====================================================================
+// SETUP + LOGIN
+// =====================================================================
+function showScreen(which){ ['setup','login','app'].forEach(s=>$(s).classList.toggle('hidden',s!==which)); }
+
+$('cfgSave').onclick=()=>{
+  const u=$('cfgUrl').value.trim(), k=$('cfgKey').value.trim();
+  if(!u||!k){ $('cfgErr').textContent='Both fields required.'; return; }
+  localStorage.setItem('mc:url',u); localStorage.setItem('mc:key',k); URLB=u; KEY=k;
+  boot();
+};
+$('reconfig').onclick=e=>{ e.preventDefault(); localStorage.removeItem('mc:user'); USER=null; showScreen('setup'); };
+
+async function showLogin(){
+  await loadRefs();
+  if(!USERS.length){ $('loginName').innerHTML='<option value="">(no people yet — add via SQL or reconfigure)</option>'; }
+  else $('loginName').innerHTML=USERS.filter(u=>u.is_active!==false).map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
+  showScreen('login');
+}
+$('loginBtn').onclick=async()=>{
+  $('loginErr').textContent='';
+  const id=$('loginName').value; const pass=$('loginPass').value;
+  if(!id){ $('loginErr').textContent='Pick your name.'; return; }
+  try{
+    const c=await api('app_config?key=eq.shared_password_sha256&select=value');
+    const want=c.data&&c.data[0]&&c.data[0].value;
+    const got=await sha256(pass);
+    if(!want||got!==want){ $('loginErr').textContent='Wrong password.'; return; }
+    const u=USERS.find(x=>x.id===id);
+    USER={id:u.id,full_name:u.full_name,role:u.role};
+    localStorage.setItem('mc:user',JSON.stringify(USER));
+    startApp();
+  }catch(e){ $('loginErr').textContent='Connection error: '+e.message; }
+};
+
+// =====================================================================
+// APP
+// =====================================================================
+function startApp(){
+  showScreen('app');
+  $('whoName').textContent=USER.full_name;
+  $('whoRole').textContent=USER.role;
+  renderAddForm();
+  switchTab('colony');
+  loadColony();
+}
+$('logout').onclick=()=>{ localStorage.removeItem('mc:user'); USER=null; showLogin(); };
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>switchTab(t.dataset.tab));
+function switchTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
+  ['colony','add','people'].forEach(n=>$('tab-'+n).classList.toggle('hidden',n!==name));
+  if(name==='people') renderPeople();
+}
+
+// ---------- colony table ----------
+const COLS=[
+  {k:'tag_id',label:'Tag'},{k:'sex',label:'Sex'},{k:'cohort',label:'Cohort'},
+  {k:'genotype_label',label:'Genotype'},{k:'age_months',label:'Age (mo)'},
+  {k:'current_location',label:'Location'},{k:'owner_name',label:'Owner'},{k:'status',label:'Status'},
+];
+let sortKey='age_months', sortDir='asc', page=0, pageSize=50, total=0;
+
+function buildQuery(forExport){
+  const p=[];
+  p.push('select=id,tag_id,sex,cohort,genotype_label,age_months,age_weeks,age_days,current_location,owner_name,responsible_person,status,is_stale,dob');
+  const q=$('fSearch').value.trim();
+  if(q){ const t=encodeURIComponent('*'+q+'*'); p.push(`or=(tag_id.ilike."${t}",genotype_label.ilike."${t}")`); } // quote values so , . ( ) in the search don't split the or()
+  if($('fSex').value) p.push('sex=eq.'+$('fSex').value);
+  if($('fCohort').value) p.push('cohort=eq.'+encodeURIComponent($('fCohort').value));
+  if($('fStatus').value) p.push('status=eq.'+$('fStatus').value);
+  if($('fAgeMin').value) p.push('age_months=gte.'+$('fAgeMin').value);
+  if($('fAgeMax').value) p.push('age_months=lte.'+$('fAgeMax').value);
+  if($('fOwner').value) p.push('responsible_person=eq.'+$('fOwner').value);
+  if($('fLoc').value.trim()) p.push('current_location=ilike.'+encodeURIComponent('*'+$('fLoc').value.trim()+'*'));
+  p.push('order='+sortKey+'.'+sortDir+'.nullslast');
+  if(!forExport){ p.push('limit='+pageSize); p.push('offset='+(page*pageSize)); }
+  return 'mouse_v?'+p.join('&');
+}
+async function loadColony(){
+  renderHead();
+  try{
+    const r=await api(buildQuery(false),{headers:{Prefer:'count=exact'}});
+    total = r.range ? parseInt((r.range.split('/')[1]||'0'),10)||0 : (r.data||[]).length;
+    renderRows(r.data||[]);
+    $('mouseCountHdr').textContent = total?('· '+total.toLocaleString()+' mice'):'';
+    const from=total?page*pageSize+1:0, to=Math.min(total,(page+1)*pageSize);
+    $('pageInfo').textContent=`${from}–${to} of ${total.toLocaleString()}`;
+    $('prev').disabled=page<=0; $('next').disabled=(page+1)*pageSize>=total;
+  }catch(e){ $('tbody').innerHTML=`<tr><td colspan="8" class="empty">Error: ${esc(e.message)}<br><span style="font-size:12px">Did you run schema.sql and add people?</span></td></tr>`; }
+}
+function renderHead(){
+  $('thead').innerHTML=COLS.map(c=>`<th data-k="${c.k}">${c.label}${sortKey===c.k?` <span class="ar">${sortDir==='asc'?'▲':'▼'}</span>`:''}</th>`).join('');
+  $('thead').querySelectorAll('th').forEach(th=>th.onclick=()=>{ const k=th.dataset.k; if(sortKey===k)sortDir=sortDir==='asc'?'desc':'asc'; else{sortKey=k;sortDir='asc';} page=0; loadColony(); });
+}
+function renderRows(rows){
+  if(!rows.length){ $('tbody').innerHTML='<tr><td colspan="8" class="empty">No mice match. Add one, or adjust filters.</td></tr>'; return; }
+  $('tbody').innerHTML=rows.map(m=>`<tr data-id="${m.id}">
+    <td><b>${esc(m.tag_id||'—')}</b></td>
+    <td>${esc(m.sex||'')}</td>
+    <td class="cohort">${esc(m.cohort||'')}</td>
+    <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${esc(m.genotype_label||'')}</td>
+    <td>${m.age_months!=null?m.age_months:'—'}</td>
+    <td>${esc(m.current_location||'')}</td>
+    <td>${esc(m.owner_name||'')}</td>
+    <td><span class="badge b-${esc(m.status)}">${esc(m.status)}</span>${m.is_stale?'<span class="badge b-stale">stale</span>':''}</td>
+  </tr>`).join('');
+  $('tbody').querySelectorAll('tr').forEach(tr=>tr.onclick=()=>openDetail(tr.dataset.id));
+}
+['fSearch','fLoc'].forEach(id=>$(id).addEventListener('input',debounce(()=>{page=0;loadColony();},300)));
+['fSex','fCohort','fStatus','fAgeMin','fAgeMax','fOwner'].forEach(id=>$(id).addEventListener('change',()=>{page=0;loadColony();}));
+$('fClear').onclick=()=>{['fSearch','fLoc','fAgeMin','fAgeMax'].forEach(i=>$(i).value='');['fSex','fCohort','fOwner'].forEach(i=>$(i).value='');$('fStatus').value='alive';page=0;loadColony();};
+$('prev').onclick=()=>{if(page>0){page--;loadColony();}};
+$('next').onclick=()=>{if((page+1)*pageSize<total){page++;loadColony();}};
+function debounce(fn,ms){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);};}
+
+$('exportCsv').onclick=async()=>{
+  try{
+    const r=await api(buildQuery(true)); // all matching rows, current filters
+    const rows=r.data||[]; if(!rows.length){toast('Nothing to export');return;}
+    const cols=['tag_id','sex','cohort','genotype_label','age_months','age_weeks','age_days','current_location','owner_name','status','dob'];
+    let csv=cols.join(',')+'\n';
+    rows.forEach(m=>{ csv+=cols.map(c=>{const v=m[c]==null?'':String(m[c]);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}).join(',')+'\n'; });
+    const b=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='colony_export.csv';a.click();
+  }catch(e){ toast('Export failed: '+e.message); }
+};
+
+// ---------- mouse detail / edit ----------
+let curMouse=null, editing=false;
+async function openDetail(id){
+  editing=false;
+  try{
+    const m=(await api(`mouse_v?id=eq.${id}&select=*`)).data[0];
+    if(!m){ toast('Mouse not found'); return; }
+    curMouse=m;
+    const em=(await api(`experiment_mice?mouse_id=eq.${id}&select=*,experiments(name,type,collaborator)&order=enrolled_date`)).data||[];
+    const pr=(await api(`procedures?mouse_id=eq.${id}&order=date`)).data||[];
+    renderDetail(m,em,pr);
+    $('detailOverlay').classList.add('open');
+  }catch(e){ toast('Load failed: '+e.message); }
+}
+function closeDetail(){ $('detailOverlay').classList.remove('open'); curMouse=null; editing=false; }
+$('detailOverlay').addEventListener('mousedown',e=>{ if(e.target===$('detailOverlay')) closeDetail(); });
+
+function renderDetail(m,em,pr){
+  if(editing){ renderEdit(m); return; }
+  const tl=[];
+  em.forEach(e=>tl.push({date:e.enrolled_date,tag:(e.experiments&&e.experiments.type)||'exp',
+    txt:`${(e.experiments&&e.experiments.name)||'Experiment'} — ${e.role||'subject'}${e.outcome?' ('+e.outcome+')':''}${e.exited_date?' → '+e.exited_date:''}`}));
+  pr.forEach(p=>tl.push({date:p.date,tag:p.kind||'proc',txt:`${p.kind||'procedure'}${p.agent?': '+p.agent:''}${p.dose?' '+p.dose:''}${p.notes?' — '+p.notes:''}`}));
+  if(m.dob) tl.push({date:m.dob,tag:'born',txt:'Born'});
+  if(m.date_of_death) tl.push({date:m.date_of_death,tag:'died',txt:'Died / sacrificed'});
+  tl.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  $('detailModal').innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div><h2>${esc(m.tag_id||'(no tag)')} <span class="badge b-${esc(m.status)}">${esc(m.status)}</span>${m.is_stale?'<span class="badge b-stale">stale</span>':''}</h2>
+      <div class="mid">${esc(m.id)}</div></div>
+      <button class="btn sm" onclick="__mc.close()">✕</button>
+    </div>
+    <div class="grid3">
+      <div class="kv"><span class="k">Sex</span><span>${esc(m.sex||'—')}</span></div>
+      <div class="kv"><span class="k">Cohort</span><span class="cohort">${esc(m.cohort||'—')}</span></div>
+      <div class="kv"><span class="k">Age</span><span>${m.age_months!=null?m.age_months+' mo ('+m.age_days+'d)':'—'}</span></div>
+      <div class="kv"><span class="k">DOB</span><span>${esc(m.dob||'—')}</span></div>
+      <div class="kv"><span class="k">Owner</span><span>${esc(m.owner_name||'—')}</span></div>
+      <div class="kv"><span class="k">Location</span><span>${esc(m.current_location||'—')}</span></div>
+      <div class="kv"><span class="k">Strain</span><span>${esc(m.strain_background||'—')}</span></div>
+      <div class="kv"><span class="k">Verified</span><span>${esc(m.last_verified||'never')}</span></div>
+      <div class="kv"><span class="k">Facility</span><span>${esc(m.facility||'—')}</span></div>
+    </div>
+    <div class="kv"><span class="k">Genotype</span><span>${esc(m.genotype_label||'—')}</span></div>
+    ${m.notes?`<div class="kv"><span class="k">Notes</span><span>${esc(m.notes)}</span></div>`:''}
+    <div class="section-h">Timeline</div>
+    <div class="timeline">${tl.length?tl.map(i=>`<div class="tl-item"><span class="dt">${esc(i.date||'—')}</span><span class="tag">${esc(i.tag)}</span><span>${esc(i.txt)}</span></div>`).join(''):'<div style="color:var(--muted);font-size:12px">No experiments or procedures logged.</div>'}</div>
+    <div class="modal-actions">
+      <button class="btn g sm" onclick="__mc.verify()">✓ Mark verified today</button>
+      <button class="btn p" onclick="__mc.edit()">Edit</button>
+    </div>`;
+}
+function fieldsHtml(m){
+  m=m||{};
+  return `<div class="grid2">
+    <div class="field"><label>Tag / cage-card #</label><input class="in" id="e_tag" value="${esc(m.tag_id||'')}"></div>
+    <div class="field"><label>Sex</label><select class="in" id="e_sex"><option value="">—</option>${['M','F','U'].map(s=>`<option${m.sex===s?' selected':''}>${s}</option>`).join('')}</select></div>
+    <div class="field"><label>DOB</label><input class="in" id="e_dob" type="date" value="${esc(m.dob||'')}"></div>
+    <div class="field"><label>Date of death</label><input class="in" id="e_dod" type="date" value="${esc(m.date_of_death||'')}"></div>
+    <div class="field"><label>Cohort</label><select class="in" id="e_cohort">${cohortOptions(m.cohort)}</select></div>
+    <div class="field"><label>Status</label><select class="in" id="e_status">${['alive','sacrificed','transferred','dead','unknown'].map(s=>`<option${(m.status||'alive')===s?' selected':''}>${s}</option>`).join('')}</select></div>
+    <div class="field"><label>Owner</label><select class="in" id="e_owner">${ownerOptions(m.responsible_person)}</select></div>
+    <div class="field"><label>Location</label><input class="in" id="e_loc" value="${esc(m.current_location||'')}"></div>
+    <div class="field"><label>Strain background</label><input class="in" id="e_strain" value="${esc(m.strain_background||'')}"></div>
+    <div class="field"><label>Facility</label><input class="in" id="e_fac" value="${esc(m.facility||'Salk')}"></div>
+  </div>
+  <div class="field"><label>Genotype (free text)</label><input class="in" id="e_geno" value="${esc(m.genotype_label||'')}" placeholder="e.g. APPswe/PS1dE9 het"></div>
+  <div class="field"><label>Notes</label><textarea class="in" id="e_notes" rows="2">${esc(m.notes||'')}</textarea></div>`;
+}
+function readFields(){
+  const g=id=>$(id).value.trim()||null;
+  return {tag_id:g('e_tag'),sex:g('e_sex'),dob:g('e_dob'),date_of_death:g('e_dod'),cohort:g('e_cohort'),
+    status:$('e_status').value,responsible_person:g('e_owner'),current_location:g('e_loc'),
+    strain_background:g('e_strain'),facility:g('e_fac'),genotype_label:g('e_geno'),notes:g('e_notes')};
+}
+function renderEdit(m){
+  $('detailModal').innerHTML=`<h2>Edit ${esc(m.tag_id||'mouse')}</h2><div class="mid">${esc(m.id)}</div>
+    ${fieldsHtml(m)}
+    <div class="modal-actions"><button class="btn sm" onclick="__mc.view()">Cancel</button><button class="btn p" onclick="__mc.save()">Save</button></div>
+    <div class="err" id="editErr"></div>`;
+}
+window.__mc={
+  close:closeDetail,
+  edit:()=>{editing=true;renderDetail(curMouse,[],[]);},
+  view:()=>{openDetail(curMouse.id);},
+  save:async()=>{
+    const patch=readFields(); patch.updated_by=USER.id; patch.updated_at=new Date().toISOString();
+    try{
+      await api(`mice?id=eq.${curMouse.id}`,{method:'PATCH',headers:{Prefer:'return=representation'},body:patch});
+      await audit('mice',curMouse.id,'UPDATE',curMouse,patch);
+      toast('Saved'); closeDetail(); loadColony();
+    }catch(e){ $('editErr').textContent=e.message; }
+  },
+  verify:async()=>{
+    const today=new Date().toISOString().slice(0,10);
+    try{ await api(`mice?id=eq.${curMouse.id}`,{method:'PATCH',body:{last_verified:today,updated_by:USER.id,updated_at:new Date().toISOString()}});
+      await audit('mice',curMouse.id,'VERIFY',null,{last_verified:today}); toast('Marked verified'); openDetail(curMouse.id); loadColony(); }
+    catch(e){ toast('Failed: '+e.message); }
+  },
+};
+
+// ---------- add mouse ----------
+function renderAddForm(){ $('addForm').innerHTML=fieldsHtml({facility:'Salk',status:'alive'})
+  .replace(/id="e_/g,'id="a_'); }
+$('addSave').onclick=async()=>{
+  const g=id=>{const el=$(id);return el?(el.value.trim()||null):null;};
+  const rec={tag_id:g('a_tag'),sex:g('a_sex'),dob:g('a_dob'),date_of_death:g('a_dod'),cohort:g('a_cohort'),
+    status:$('a_status').value,responsible_person:g('a_owner'),current_location:g('a_loc'),
+    strain_background:g('a_strain'),facility:g('a_fac'),genotype_label:g('a_geno'),notes:g('a_notes'),
+    created_by:USER.id,updated_by:USER.id,last_verified:new Date().toISOString().slice(0,10)};
+  $('addErr').textContent='';
+  try{
+    const r=await api('mice',{method:'POST',headers:{Prefer:'return=representation'},body:[rec]});
+    await audit('mice',r.data&&r.data[0]&&r.data[0].id,'INSERT',null,rec);
+    toast('Mouse added'); renderAddForm(); switchTab('colony'); page=0; loadColony();
+  }catch(e){ $('addErr').textContent=e.message; }
+};
+
+// ---------- people ----------
+async function renderPeople(){
+  await loadRefs();
+  $('peopleList').innerHTML=`<div class="tablewrap"><table><thead><tr><th>Name</th><th>Role</th><th>Active</th></tr></thead>
+    <tbody>${USERS.map(u=>`<tr><td>${esc(u.full_name)}</td><td><span class="pill">${esc(u.role)}</span></td><td>${u.is_active===false?'no':'yes'}</td></tr>`).join('')||'<tr><td colspan="3" class="empty">No people yet.</td></tr>'}</tbody></table></div>`;
+  // refresh owner filters/selects with new users
+  $('fOwner').innerHTML='<option value="">any</option>'+USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
+  $('fCohort').innerHTML='<option value="">any</option>'+COHORTS.map(c=>`<option>${esc(c)}</option>`).join('');
+}
+$('addPerson').onclick=async()=>{
+  const name=$('newPersonName').value.trim(); const role=$('newPersonRole').value;
+  if(!name)return;
+  try{ await api('app_users',{method:'POST',body:[{full_name:name,role}]}); $('newPersonName').value=''; toast('Added'); renderPeople(); }
+  catch(e){ toast('Failed: '+e.message); }
+};
+$('setPass').onclick=async()=>{
+  const p=$('newPass').value; if(!p){toast('Enter a password');return;}
+  try{ const h=await sha256(p); await api('app_config',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:[{key:'shared_password_sha256',value:h}]}); $('newPass').value=''; toast('Password updated'); }
+  catch(e){ toast('Failed: '+e.message); }
+};
+
+// =====================================================================
+// BOOT
+// =====================================================================
+async function boot(){
+  if(!configured()){ showScreen('setup'); if(URLB)$('cfgUrl').value=URLB; return; }
+  await loadRefs();
+  // populate selects that persist across screens
+  $('fOwner').innerHTML='<option value="">any</option>'+USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
+  $('fCohort').innerHTML='<option value="">any</option>'+COHORTS.map(c=>`<option>${esc(c)}</option>`).join('');
+  if(USER&&USER.id){ startApp(); } else { showLogin(); }
+}
+boot();
+})();
+</script>
+</body>
+</html>
