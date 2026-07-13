@@ -1,9 +1,16 @@
-# Lee Lab Mouse Colony DB — Phase 1
+# Lee Lab Mouse Colony DB
+
+### 🔗 Live: https://leomeow123.github.io/leelab-colony/
+*(moves to https://colony.kuofenleelab.com once the DNS record is added.)*
+Log in with your name + the shared lab password.
 
 A single-file web app (`index.html`) + Postgres schema (`schema.sql`) for the
-Kuo-Fen Lee lab mouse colony. Phase 1 = **browse / search / filter / sort the
-colony, see each mouse's timeline, add & edit mice, manage people, export CSV.**
-Hosted on GitHub Pages, backed by Supabase (Postgres + auto REST API + RLS).
+Kuo-Fen Lee lab mouse colony. Backed by Supabase (Postgres + auto REST API + RLS),
+hosted on GitHub Pages, with automated daily backups in a separate private repo.
+
+**Features:** browse / search / filter / sort the colony, per-mouse timeline,
+add & edit mice, people admin, CSV export, and a **request/approval queue**
+(ask an owner for mice or route to breeding, with comments + ownership transfer).
 
 ## Login model (kept deliberately simple)
 Everyone picks their **name** from a dropdown and types **one shared lab
