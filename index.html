@@ -5,10 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Lee Lab Mouse Colony</title>
 <style>
-  :root{--bg:#0d0f14;--bg2:#13161e;--bg3:#1a1e2a;--border:rgba(255,255,255,0.1);--border2:rgba(255,255,255,0.16);
-    --text:#e8eaf0;--muted:#7a7f94;--accent:#4f9cf9;--green:#34d399;--red:#ef4444;--amber:#fbbf24;--purple:#a78bfa}
+  /* Light is the default (lab-friendly). [data-theme="dark"] flips to blue/black. */
+  :root{--bg:#f6f7f9;--bg2:#ffffff;--bg3:#f1f3f7;--border:#e5e8ee;--border2:#d5dae3;
+    --text:#1a1d26;--muted:#667085;--accent:#2563eb;--green:#15803d;--red:#dc2626;--amber:#b45309;--purple:#7c3aed;
+    --hover:#eaeef4;--shadow:0 1px 2px rgba(16,24,40,.06)}
+  html[data-theme="dark"]{--bg:#0d0f14;--bg2:#13161e;--bg3:#1a1e2a;--border:rgba(255,255,255,0.1);--border2:rgba(255,255,255,0.16);
+    --text:#e8eaf0;--muted:#7a7f94;--accent:#4f9cf9;--green:#34d399;--red:#ef4444;--amber:#fbbf24;--purple:#a78bfa;
+    --hover:#232838;--shadow:none}
   *{margin:0;padding:0;box-sizing:border-box}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+  body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;-webkit-font-smoothing:antialiased}
   a{color:var(--accent)}
   .hidden{display:none!important}
   input,select,button,textarea{font-family:inherit;font-size:13px}
@@ -16,8 +21,9 @@
   .in:focus{border-color:var(--accent)}
   label{font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px}
   .btn{background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);padding:7px 13px;font-weight:600;cursor:pointer}
-  .btn:hover{background:#232838}
-  .btn.p{background:var(--accent);color:#04101f;border-color:var(--accent)}
+  .btn:hover{background:var(--hover)}
+  .btn.p{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .btn.p:hover{background:var(--accent);filter:brightness(.94)}
   .btn.g{color:var(--green);border-color:rgba(52,211,153,.4)}
   .btn.r{color:var(--red);border-color:rgba(239,68,68,.4)}
   .btn.sm{padding:4px 9px;font-size:12px}
@@ -25,14 +31,14 @@
 
   /* centered card screens (setup/login) */
   .center{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-  .card{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:400px}
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:400px;box-shadow:var(--shadow)}
   .card h1{font-size:19px;margin-bottom:4px}
   .card .sub{color:var(--muted);font-size:12px;margin-bottom:18px}
   .card .field{margin-bottom:12px}
   .err{color:var(--red);font-size:12px;margin-top:8px;min-height:16px}
 
   /* app shell */
-  header{display:flex;align-items:center;gap:14px;padding:10px 16px;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:20}
+  header{display:flex;align-items:center;gap:14px;padding:10px 16px;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:20;box-shadow:var(--shadow)}
   header h1{font-size:15px;font-weight:700}
   header h1 .em{color:var(--muted);font-weight:400;font-size:12px}
   .tabs{display:flex;gap:4px}
@@ -45,14 +51,16 @@
   .wrap{padding:14px 16px;max-width:1200px;margin:0 auto}
 
   /* filter bar */
-  .filters{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px}
+  .filters{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px;box-shadow:var(--shadow)}
   .filters .f{min-width:110px}
   .filters .f.grow{flex:1;min-width:180px}
   .filters .f label{margin-bottom:2px}
   .filters .in{padding:6px 8px}
 
   /* table */
-  .tablewrap{overflow-x:auto;border:1px solid var(--border);border-radius:12px;background:var(--bg2)}
+  .tablewrap{overflow-x:auto;border:1px solid var(--border);border-radius:12px;background:var(--bg2);box-shadow:var(--shadow)}
+  thead th{background:var(--bg3)}
+  tbody tr:hover{background:var(--hover)}
   table{width:100%;border-collapse:collapse;font-size:13px}
   th{text-align:left;padding:9px 10px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none}
   th .ar{color:var(--accent)}
@@ -89,6 +97,7 @@
   .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:9px 16px;z-index:100;font-size:13px;opacity:0;transition:opacity .2s}
   .toast.show{opacity:1}
 </style>
+<script>try{if(localStorage.getItem('mc:theme')==='dark')document.documentElement.dataset.theme='dark';}catch(e){}</script>
 </head>
 <body>
 
@@ -127,7 +136,7 @@
       <button class="tab" data-tab="requests">Requests</button>
       <button class="tab" data-tab="people">People</button>
     </div>
-    <div class="who"><span>👤 <b id="whoName"></b> <span class="pill" id="whoRole"></span></span><button class="btn sm" id="logout">Logout</button></div>
+    <div class="who"><span>👤 <b id="whoName"></b> <span class="pill" id="whoRole"></span></span><button class="btn sm" id="themeToggle" title="Light / dark">☾</button><button class="btn sm" id="logout">Logout</button></div>
   </header>
 
   <!-- COLONY -->
@@ -683,6 +692,12 @@ window.__rq={
 $('newReqBtn').onclick=openNewReq;
 $('reqFilter').onchange=renderRequests;
 $('reqOverlay').addEventListener('mousedown',e=>{ if(e.target===$('reqOverlay')) $('reqOverlay').classList.remove('open'); });
+
+// theme toggle (light default; flips to blue/black dark, remembered per browser)
+function setTheme(t){ document.documentElement.dataset.theme = t==='dark'?'dark':''; try{localStorage.setItem('mc:theme',t);}catch(_){}
+  const b=$('themeToggle'); if(b) b.textContent = t==='dark'?'☀':'☾'; }
+$('themeToggle').onclick=()=>setTheme(document.documentElement.dataset.theme==='dark'?'light':'dark');
+setTheme(document.documentElement.dataset.theme==='dark'?'dark':'light');
 
 async function boot(){
   if(!configured()){ showScreen('setup'); if(URLB)$('cfgUrl').value=URLB; return; }
