@@ -124,6 +124,7 @@
     <div class="tabs">
       <button class="tab active" data-tab="colony">Colony</button>
       <button class="tab" data-tab="add">＋ Add mouse</button>
+      <button class="tab" data-tab="requests">Requests</button>
       <button class="tab" data-tab="people">People</button>
     </div>
     <div class="who"><span>👤 <b id="whoName"></b> <span class="pill" id="whoRole"></span></span><button class="btn sm" id="logout">Logout</button></div>
@@ -132,7 +133,7 @@
   <!-- COLONY -->
   <div class="wrap" id="tab-colony">
     <div class="filters">
-      <div class="f grow"><label>Search (tag / genotype)</label><input class="in" id="fSearch" placeholder="e.g. 4471 or APPswe"></div>
+      <div class="f grow"><label>Search (mouse # / genotype)</label><input class="in" id="fSearch" placeholder="e.g. 4471 or APPswe"></div>
       <div class="f"><label>Sex</label><select class="in" id="fSex"><option value="">any</option><option>M</option><option>F</option><option>U</option></select></div>
       <div class="f"><label>Cohort</label><select class="in" id="fCohort"><option value="">any</option></select></div>
       <div class="f"><label>Status</label><select class="in" id="fStatus"><option value="alive">alive</option><option value="">any</option><option>sacrificed</option><option>transferred</option><option>dead</option><option>unknown</option></select></div>
@@ -179,11 +180,35 @@
       </div>
     </div>
   </div>
+
+  <!-- REQUESTS -->
+  <div class="wrap hidden" id="tab-requests">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+      <button class="btn p" id="newReqBtn">＋ New request</button>
+      <select class="in" id="reqFilter" style="width:auto">
+        <option value="open">Open</option>
+        <option value="assigned">Assigned to me</option>
+        <option value="mine">Mine (I asked)</option>
+        <option value="routed_to_breeding">Breeding queue</option>
+        <option value="">All</option>
+      </select>
+      <span class="sub" id="reqCount" style="color:var(--muted);font-size:12px"></span>
+    </div>
+    <div class="tablewrap"><table>
+      <thead><tr><th title="bump priority">▲</th><th>Subject</th><th>Needs</th><th>By</th><th>Assignee</th><th>Status</th><th>Date</th></tr></thead>
+      <tbody id="reqBody"></tbody>
+    </table></div>
+  </div>
 </div>
 
 <!-- MOUSE DETAIL / EDIT MODAL -->
 <div class="overlay" id="detailOverlay">
   <div class="modal" id="detailModal"></div>
+</div>
+
+<!-- REQUEST MODAL -->
+<div class="overlay" id="reqOverlay">
+  <div class="modal" id="reqModal"></div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -290,13 +315,14 @@ $('logout').onclick=()=>{ localStorage.removeItem('mc:user'); USER=null; showLog
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>switchTab(t.dataset.tab));
 function switchTab(name){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
-  ['colony','add','people'].forEach(n=>$('tab-'+n).classList.toggle('hidden',n!==name));
+  ['colony','add','people','requests'].forEach(n=>$('tab-'+n).classList.toggle('hidden',n!==name));
   if(name==='people') renderPeople();
+  if(name==='requests') renderRequests();
 }
 
 // ---------- colony table ----------
 const COLS=[
-  {k:'tag_id',label:'Tag'},{k:'sex',label:'Sex'},{k:'cohort',label:'Cohort'},
+  {k:'tag_id',label:'Mouse #'},{k:'sex',label:'Sex'},{k:'cohort',label:'Cohort'},
   {k:'genotype_label',label:'Genotype'},{k:'age_months',label:'Age (mo)'},
   {k:'current_location',label:'Location'},{k:'owner_name',label:'Owner'},{k:'status',label:'Status'},
 ];
@@ -421,7 +447,7 @@ function renderDetail(m,em,pr){
 function fieldsHtml(m){
   m=m||{};
   return `<div class="grid2">
-    <div class="field"><label>Tag / cage-card #</label><input class="in" id="e_tag" value="${esc(m.tag_id||'')}"></div>
+    <div class="field"><label>Mouse #</label><input class="in" id="e_tag" value="${esc(m.tag_id||'')}"></div>
     <div class="field"><label>Sex</label><select class="in" id="e_sex"><option value="">—</option>${['M','F','U'].map(s=>`<option${m.sex===s?' selected':''}>${s}</option>`).join('')}</select></div>
     <div class="field"><label>DOB</label><input class="in" id="e_dob" type="date" value="${esc(m.dob||'')}"></div>
     <div class="field"><label>Date of death</label><input class="in" id="e_dod" type="date" value="${esc(m.date_of_death||'')}"></div>
@@ -508,6 +534,156 @@ $('setPass').onclick=async()=>{
 // =====================================================================
 // BOOT
 // =====================================================================
+// ---------- requests / approval queue ----------
+function reqNeeds(r){
+  const p=[]; if(r.needed_sex)p.push(r.needed_sex); if(r.needed_cohort)p.push(r.needed_cohort);
+  if(r.needed_age_min_weeks!=null||r.needed_age_max_weeks!=null)p.push((r.needed_age_min_weeks??'')+'–'+(r.needed_age_max_weeks??'')+'wk');
+  if(r.quantity)p.push('×'+r.quantity);
+  return p.join(' · ')||'—';
+}
+function reqBadge(s){
+  const m={open:'b-alive',approved:'b-alive',fulfilled:'b-alive',denied:'b-dead',cancelled:'b-dead',closed:'b-dead',routed_to_breeding:'b-transferred'};
+  return `<span class="badge ${m[s]||'b-dead'}">${esc(String(s).replace(/_/g,' '))}</span>`;
+}
+function managerId(){ const m=USERS.find(u=>u.full_name==='Bertha')||USERS.find(u=>u.role==='manager')||USERS.find(u=>u.role==='pi'); return m&&m.id; }
+const canAct=r=>USER&&(USER.id===r.assignee_id||USER.role==='manager'||USER.role==='pi');
+
+async function renderRequests(){
+  const f=$('reqFilter').value;
+  let q='requests?select=*&order=priority.desc,created_at.desc';
+  if(f==='open') q+='&status=in.(open,routed_to_breeding)';
+  else if(f==='mine') q+='&requester_id=eq.'+USER.id;
+  else if(f==='assigned') q+='&assignee_id=eq.'+USER.id;
+  else if(f==='routed_to_breeding') q+='&status=eq.routed_to_breeding';
+  let rows=[]; try{ rows=(await api(q)).data||[]; }catch(e){ $('reqBody').innerHTML=`<tr><td colspan="7" class="empty">Error: ${esc(e.message)}</td></tr>`; return; }
+  $('reqCount').textContent=rows.length+' request'+(rows.length!==1?'s':'');
+  if(!rows.length){ $('reqBody').innerHTML='<tr><td colspan="7" class="empty">No requests. Click “New request” to ask for mice.</td></tr>'; return; }
+  $('reqBody').innerHTML=rows.map(r=>`<tr data-id="${r.id}">
+    <td><button class="btn sm" data-bump="${r.id}" data-pri="${r.priority||0}" title="bump priority">▲ ${r.priority||0}</button></td>
+    <td><b>${esc(r.subject)}</b></td>
+    <td>${esc(reqNeeds(r))}</td>
+    <td>${esc(userName(r.requester_id))}</td>
+    <td>${esc(userName(r.assignee_id)||'—')}</td>
+    <td>${reqBadge(r.status)}</td>
+    <td class="sub" style="color:var(--muted)">${esc((r.created_at||'').slice(0,10))}</td>
+  </tr>`).join('');
+  $('reqBody').querySelectorAll('tr').forEach(tr=>tr.onclick=e=>{
+    const b=e.target.closest('[data-bump]');
+    if(b){ e.stopPropagation(); bumpReq(b.dataset.bump,+b.dataset.pri); return; }
+    openReq(tr.dataset.id);
+  });
+}
+async function bumpReq(id,pri){ try{ await api('requests?id=eq.'+id,{method:'PATCH',body:{priority:pri+1}}); renderRequests(); }catch(e){ toast('Failed: '+e.message); } }
+
+function openNewReq(){
+  $('reqModal').innerHTML=`<h2>New mouse request</h2>
+    <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:12px">Ask an owner for specific mice, or describe what you need — if the lab doesn't have it, it routes to Bertha for breeding.</div>
+    <div class="field"><label>Subject</label><input class="in" id="q_subj" placeholder="e.g. 4 APP females for behavior"></div>
+    <div class="field"><label>Why / details</label><textarea class="in" id="q_body" rows="2" placeholder="reason, timeline…"></textarea></div>
+    <div class="field"><label>Specific mouse # (optional — blank = request by criteria)</label><input class="in" id="q_mouse" placeholder="mouse number"></div>
+    <div class="grid3">
+      <div class="field"><label>Sex</label><select class="in" id="q_sex"><option value="">any</option><option>M</option><option>F</option></select></div>
+      <div class="field"><label>Cohort</label><select class="in" id="q_cohort">${cohortOptions('')}</select></div>
+      <div class="field"><label>Quantity</label><input class="in" id="q_qty" type="number" min="1" placeholder="1"></div>
+      <div class="field"><label>Age ≥ (wk)</label><input class="in" id="q_agemin" type="number"></div>
+      <div class="field"><label>Age ≤ (wk)</label><input class="in" id="q_agemax" type="number"></div>
+    </div>
+    <div class="modal-actions"><button class="btn sm" onclick="__rq.close()">Cancel</button><button class="btn p" onclick="__rq.create()">Submit request</button></div>
+    <div class="err" id="q_err"></div>`;
+  $('reqOverlay').classList.add('open');
+}
+
+let curReq=null;
+async function openReq(id){
+  try{
+    curReq=(await api('requests?id=eq.'+id+'&select=*')).data[0];
+    if(!curReq){ toast('Not found'); return; }
+    const cm=(await api('request_comments?request_id=eq.'+id+'&select=*&order=created_at')).data||[];
+    let tgt=''; if(curReq.target_mouse_id){ const m=(await api('mice?id=eq.'+curReq.target_mouse_id+'&select=tag_id')).data[0]; if(m)tgt=m.tag_id; }
+    renderReq(curReq,cm,tgt);
+    $('reqOverlay').classList.add('open');
+  }catch(e){ toast('Load failed: '+e.message); }
+}
+function renderReq(r,cm,tgt){
+  const actions = (canAct(r)&&['open','routed_to_breeding'].includes(r.status)) ? `
+    <div class="modal-actions">
+      <button class="btn g" onclick="__rq.decide('approve')">${r.target_mouse_id?'Approve &amp; transfer':'Approve'}</button>
+      <button class="btn" onclick="__rq.decide('fulfilled')">Mark fulfilled</button>
+      <button class="btn r" onclick="__rq.decide('denied')">Deny</button>
+      ${r.status!=='routed_to_breeding'?`<button class="btn" onclick="__rq.decide('routed_to_breeding')">Route to breeding</button>`:''}
+    </div>` : '';
+  $('reqModal').innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div><h2>${esc(r.subject)}</h2><div class="mid">by ${esc(userName(r.requester_id))} · ${esc((r.created_at||'').slice(0,10))}</div></div>
+      <button class="btn sm" onclick="__rq.close()">✕</button>
+    </div>
+    <div class="kv"><span class="k">Status</span>${reqBadge(r.status)}</div>
+    <div class="kv"><span class="k">Assignee</span><span>${esc(userName(r.assignee_id)||'—')}</span></div>
+    <div class="kv"><span class="k">Needs</span><span>${esc(reqNeeds(r))}</span></div>
+    ${tgt?`<div class="kv"><span class="k">Specific mouse</span><span>#${esc(tgt)}</span></div>`:''}
+    ${r.body?`<div class="kv"><span class="k">Details</span><span>${esc(r.body)}</span></div>`:''}
+    ${r.decision_note?`<div class="kv"><span class="k">Decision</span><span>${esc(r.decision_note)}</span></div>`:''}
+    ${actions}
+    <div class="section-h">Comments</div>
+    <div>${cm.length?cm.map(c=>`<div class="tl-item"><span class="dt">${esc((c.created_at||'').slice(0,10))}</span><span><b>${esc(userName(c.author_id))}:</b> ${esc(c.body)}</span></div>`).join(''):'<div class="sub" style="color:var(--muted);font-size:12px">No comments yet.</div>'}</div>
+    <div class="addrow" style="margin-top:8px"><input class="in" id="q_comment" placeholder="Add a comment…"><button class="btn" onclick="__rq.comment()">Send</button></div>`;
+}
+
+window.__rq={
+  close:()=>$('reqOverlay').classList.remove('open'),
+  create:async()=>{
+    const g=id=>$(id).value.trim()||null;
+    const subj=g('q_subj'); if(!subj){ $('q_err').textContent='Subject required.'; return; }
+    const rec={requester_id:USER.id, subject:subj, body:g('q_body'), needed_sex:g('q_sex'), needed_cohort:g('q_cohort'),
+      needed_age_min_weeks:g('q_agemin')?+g('q_agemin'):null, needed_age_max_weeks:g('q_agemax')?+g('q_agemax'):null,
+      quantity:g('q_qty')?+g('q_qty'):null, priority:0};
+    try{
+      const mouseNo=g('q_mouse');
+      let hit=null;
+      if(mouseNo){
+        hit=(await api('mice?select=id,responsible_person&status=eq.alive&tag_id=eq.'+encodeURIComponent(mouseNo)+'&limit=1')).data;
+        if(hit&&hit[0]){ rec.target_mouse_id=hit[0].id; rec.assignee_id=hit[0].responsible_person||managerId(); rec.status='open'; }
+        else { rec.status='routed_to_breeding'; rec.assignee_id=managerId(); }
+      } else {
+        let mq='mice?select=id,responsible_person&status=eq.alive&limit=1';
+        if(rec.needed_sex)mq+='&sex=eq.'+rec.needed_sex;
+        if(rec.needed_cohort)mq+='&cohort=eq.'+encodeURIComponent(rec.needed_cohort);
+        hit=(await api(mq)).data;
+        if(hit&&hit[0]){ rec.assignee_id=hit[0].responsible_person||managerId(); rec.status='open'; }
+        else { rec.status='routed_to_breeding'; rec.assignee_id=managerId(); }
+      }
+      const r=await api('requests',{method:'POST',headers:{Prefer:'return=representation'},body:[rec]});
+      await audit('requests', r.data&&r.data[0]&&r.data[0].id, 'INSERT', null, rec);
+      $('reqOverlay').classList.remove('open');
+      toast(rec.status==='routed_to_breeding' ? 'Sent to breeding queue (Bertha)' : 'Request sent to '+(userName(rec.assignee_id)||'owner'));
+      renderRequests();
+    }catch(e){ $('q_err').textContent=e.message; }
+  },
+  decide:async(kind)=>{
+    const r=curReq; const patch={decided_at:new Date().toISOString()};
+    if(kind==='approve'){
+      patch.status='approved';
+      if(r.target_mouse_id){
+        try{ await api('mice?id=eq.'+r.target_mouse_id,{method:'PATCH',body:{responsible_person:r.requester_id,updated_by:USER.id,updated_at:new Date().toISOString()}});
+          await audit('mice',r.target_mouse_id,'TRANSFER',null,{to:userName(r.requester_id)}); }
+        catch(e){ toast('Transfer failed: '+e.message); return; }
+        patch.status='fulfilled'; patch.decision_note='Ownership transferred to '+userName(r.requester_id);
+      }
+    } else { patch.status=kind; if(kind==='routed_to_breeding') patch.assignee_id=managerId(); }
+    try{ await api('requests?id=eq.'+r.id,{method:'PATCH',body:patch}); await audit('requests',r.id,'STATUS',null,patch);
+      toast('Updated'); $('reqOverlay').classList.remove('open'); renderRequests(); }
+    catch(e){ toast('Failed: '+e.message); }
+  },
+  comment:async()=>{
+    const b=$('q_comment').value.trim(); if(!b)return;
+    try{ await api('request_comments',{method:'POST',body:[{request_id:curReq.id,author_id:USER.id,body:b}]}); openReq(curReq.id); }
+    catch(e){ toast('Failed: '+e.message); }
+  },
+};
+$('newReqBtn').onclick=openNewReq;
+$('reqFilter').onchange=renderRequests;
+$('reqOverlay').addEventListener('mousedown',e=>{ if(e.target===$('reqOverlay')) $('reqOverlay').classList.remove('open'); });
+
 async function boot(){
   if(!configured()){ showScreen('setup'); if(URLB)$('cfgUrl').value=URLB; return; }
   await loadRefs();
