@@ -196,8 +196,8 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 // ---------- config ----------
-const HARD_URL='';   // optional: hardcode after first deploy
-const HARD_KEY='';
+const HARD_URL='https://xgiqhkcpssakrlemvodx.supabase.co';   // Lee lab colony Supabase project
+const HARD_KEY='sb_publishable_qbDIUER221OxvA_HvwhpCw_-V5OsMcD'; // publishable key — public-safe, guarded by RLS
 let URLB = HARD_URL || localStorage.getItem('mc:url') || '';
 let KEY  = HARD_KEY || localStorage.getItem('mc:key') || '';
 let USER = null;
