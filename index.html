@@ -347,6 +347,11 @@ function rangeStr(from,to){ from=(from||'').trim(); to=(to||'').trim(); if(!from
 function buildLoc(o){ const p=[]; if(o.facility)p.push(o.facility); if(o.room)p.push('Rm '+o.room); if(o.rack)p.push('Rack '+o.rack);
   if(o.cage)p.push('Cage '+o.cage);
   const rc=[o.rack_row&&('r'+o.rack_row),o.rack_col&&('c'+o.rack_col)].filter(Boolean).join('/'); if(rc)p.push(rc); return p.join(' · '); }
+// Summarize a group's location: same facility/room/rack counts as ONE place; only the cage varies → show "… · Cage H–L". Only truly-different bases show "mixed".
+function cageSummary(cages){ const u=[...new Set(cages.filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true}));
+  if(!u.length)return ''; if(u.length===1)return u[0]; if(u.length<=4)return u.join(', '); return u[0]+'–'+u[u.length-1]+' ('+u.length+')'; }
+function locSummary(ms){ const bases=[...new Set(ms.map(m=>buildLoc({facility:m.facility,room:m.room,rack:m.rack,rack_row:m.rack_row,rack_col:m.rack_col})).filter(Boolean))];
+  if(bases.length>1)return 'mixed'; const base=bases[0]||'—'; const cs=cageSummary(ms.map(m=>m.cage)); return cs?base+' · Cage '+cs:base; }
 function localDate(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; } // local calendar date (toISOString would give UTC → off-by-one in the PT evening)
 function todayStr(){ return localDate(new Date()); }
 function ageToDob(n,unit){ const d=new Date(); d.setDate(d.getDate()-(unit==='months'?Math.round(n*30.44):Math.round(n*7))); return localDate(d); }
@@ -461,12 +466,12 @@ function grpVal(grp,k){ const ms=grp.ms, g=grp.g;
   if(k==='count') return ms.length;
   if(k==='age_months') return g.age_months;
   if(k==='owner'){ const s=[...new Set(ms.map(m=>m.owner_name).filter(Boolean))]; return s.length===1?s[0]:(s.length?'~mixed':null); }
-  if(k==='location'){ const s=[...new Set(ms.map(m=>m.current_location).filter(Boolean))]; return s.length===1?s[0]:(s.length?'~mixed':null); }
+  if(k==='location'){ return locSummary(ms); }
   return g[k]; }
 
 function buildQuery(forExport){
   const p=[];
-  p.push('select=id,tag_id,sex,cohort,genotype_label,age_months,age_weeks,age_days,current_location,owner_name,responsible_person,status,is_stale,dob,dob_estimated,facility');
+  p.push('select=id,tag_id,sex,cohort,genotype_label,age_months,age_weeks,age_days,current_location,owner_name,responsible_person,status,is_stale,dob,dob_estimated,facility,room,rack,cage,rack_row,rack_col');
   const q=$('fSearch').value.trim();
   if(q){ const t=encodeURIComponent('*'+q+'*'); p.push(`or=(tag_id.ilike."${t}",genotype_label.ilike."${t}")`); } // quote values so , . ( ) in the search don't split the or()
   if($('fSex').value) p.push('sex=eq.'+$('fSex').value);
@@ -526,7 +531,7 @@ function renderGroups(rows){
       <td>${g.age_months!=null?(g.dob_estimated?'~':'')+g.age_months:'—'}</td>
       <td><b>${ms.length}</b></td>
       <td>${uniq(ms.map(m=>m.owner_name))}</td>
-      <td>${uniq(ms.map(m=>m.current_location))}</td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis" title="${esc([...new Set(ms.map(m=>m.current_location).filter(Boolean))].join('  |  '))}">${esc(locSummary(ms))}</td>
       <td><span class="badge b-${esc(g.status)}">${esc(g.status)}</span></td></tr>`;
     html+=ms.map(m=>`<tr class="member g-${gi} hidden" data-id="${m.id}">
       <td class="selcol"><input type="checkbox" class="rowsel" data-id="${m.id}"${SEL.has(m.id)?' checked':''}></td>
@@ -884,7 +889,7 @@ async function renderMine(){
   if(!where){ $('mineList').innerHTML='<div class="empty">Log in to see your colony.</div>'; return; }
   $('mineList').innerHTML='<div class="sub" style="color:var(--muted)">Loading…</div>';
   try{
-    const r=await api(`mouse_v?${where}&select=id,tag_id,sex,cohort,genotype_label,dob,dob_estimated,age_months,status,current_location,facility,room,rack,rack_row,rack_col,cage,n_cages,owner_name,experiments,batch_id,created_at&order=created_at.desc`);
+    const r=await api(`mouse_v?${where}&select=id,tag_id,sex,cohort,genotype_label,dob,dob_estimated,age_months,status,current_location,facility,room,rack,rack_row,rack_col,cage,n_cages,owner_name,responsible_person,experiments,batch_id,created_at&order=created_at.desc`);
     const rows=r.data||[];
     $('mineHdr').textContent = rows.length?('· '+rows.length+' mice'):'';
     if(!rows.length){ $('mineList').innerHTML='<div class="empty">No mice yet. Add one in the “＋ Add cohort” tab.</div>'; return; }
@@ -905,7 +910,7 @@ async function renderMine(){
         <td>${esc(g.genotype_label||'—')}</td>
         <td style="white-space:nowrap"><b>${ms.length}</b> <span style="color:var(--muted);font-size:11px">${esc(sexes)}</span>${pend?` <span style="color:var(--amber);font-size:11px">${pend} pend</span>`:''}</td>
         <td style="white-space:nowrap">${g.age_months!=null?(g.dob_estimated?'~':'')+g.age_months+' mo':'—'}</td>
-        <td style="max-width:190px;overflow:hidden;text-overflow:ellipsis" title="${esc(locs.join('  |  '))}">${esc(locs.length>1?'mixed':(locs[0]||'—'))}</td>
+        <td style="max-width:190px;overflow:hidden;text-overflow:ellipsis" title="${esc(locs.join('  |  '))}">${esc(locSummary(ms))}</td>
         <td style="white-space:nowrap">${stat.map(s=>`<span class="badge b-${esc(s)}">${esc(s)}</span>`).join(' ')}</td>
         <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis" title="${esc(exps.join(', '))}">${exps.length?esc(exps.join(', ')):'—'}</td>
         <td style="white-space:nowrap;font-size:12px;color:var(--muted)">${esc((g.created_at||'').slice(0,10))}</td>
