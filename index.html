@@ -412,18 +412,19 @@ function promptEmail(){
   $('emailModal').innerHTML=`<h2 style="margin:0 0 4px">Your email</h2>
     <div class="sub" style="color:var(--muted);font-size:13px;margin-bottom:12px">Used to notify you about mouse requests. You only need to set this once.</div>
     <div class="field"><label>Email</label><input class="in" id="em_val" type="email" placeholder="you@salk.edu" value="${esc(USER.email||'')}"></div>
-    <div class="modal-actions"><button class="btn p" id="em_save">Save</button></div>
+    <div class="modal-actions"><button class="btn sm" id="em_skip">Skip for now</button><button class="btn p" id="em_save">Save</button></div>
     <div class="err" id="em_err"></div>`;
   $('emailOverlay').classList.add('open');
   $('em_val').focus();
+  $('em_skip').onclick=()=>$('emailOverlay').classList.remove('open'); // never trap the user; we'll ask again next login
   $('em_save').onclick=async()=>{
     const v=$('em_val').value.trim();
-    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)){ $('em_err').textContent='Enter a valid email address.'; return; }
+    if(!/^[^\s@,;"<>]+@[^\s@,;"<>]+\.[^\s@,;"<>]+$/.test(v)){ $('em_err').textContent='Enter a valid email address.'; return; }
     try{ await api('app_users?id=eq.'+USER.id,{method:'PATCH',body:{email:v}});
       USER.email=v; localStorage.setItem('mc:user',JSON.stringify(USER));
       const u=USERS.find(x=>x.id===USER.id); if(u)u.email=v;
       $('emailOverlay').classList.remove('open'); toast('Email saved');
-    }catch(e){ $('em_err').textContent='Save failed: '+e.message; }
+    }catch(e){ $('em_err').textContent='Save failed: '+e.message+' — you can Skip for now and try later.'; }
   };
 }
 $('logout').onclick=()=>{ localStorage.removeItem('mc:user'); USER=null; showLogin(); };
@@ -1063,10 +1064,12 @@ async function impSendHelp(reason){ const file=IMP.file||'(file)', subject='[imp
   if(IMP_REPORTED.has(file)){ note('Already reported — opening the email window; attach the file and send.'); openImpMail(file,reason); return; }
   try{ const ex=(await api('requests?select=subject&status=eq.open&subject=ilike.'+encodeURIComponent('%import-help%'))).data||[];
     if(ex.some(x=>x.subject===subject)){ IMP_REPORTED.add(file); note('A help request for this file is already open — not emailing again.'); return; } }catch(_){}
-  try{ await api('requests',{method:'POST',body:[{requester_id:USER.id, assignee_id:impAdminId(), status:'open', priority:1,
-    subject, body:`The importer couldn't read “${file}”. Reason: ${reason}. File emailed to ${ADMIN_EMAIL} to reshape into an importable CSV.`}]}); }
-  catch(e){ note('Could not log the request: '+e.message); }
-  IMP_REPORTED.add(file); openImpMail(file,reason); toast('Help request logged for Leo'); note('Logged. In the email window, attach “'+file+'” and send.'); }
+  try{
+    await api('requests',{method:'POST',body:[{requester_id:USER.id, assignee_id:impAdminId(), status:'open', priority:1,
+      subject, body:`The importer couldn't read “${file}”. Reason: ${reason}. File emailed to ${ADMIN_EMAIL} to reshape into an importable CSV.`}]});
+    IMP_REPORTED.add(file); toast('Help request logged for Leo'); note('Logged. In the email window, attach “'+file+'” and send.');
+  }catch(e){ note('Couldn’t log the request ('+e.message+') — still opening the email; please send it and try again later.'); }
+  openImpMail(file,reason); } // always offer the email; only mark reported when the request row actually saved
 function openImpMail(file,reason){
   const body=`Hi Leo,\n\nThe colony importer couldn't read this file:\n  File: ${file}\n  Issue: ${reason}\n\nPlease attach the file to this email before sending (the importer can't attach it for you).\n\nThanks`;
   window.location.href='mailto:'+ADMIN_EMAIL+'?subject='+encodeURIComponent('Colony import help: '+file)+'&body='+encodeURIComponent(body); }
@@ -1261,15 +1264,16 @@ function openNewReq(){
     <div class="err" id="q_err"></div>`;
   $('reqOverlay').classList.add('open');
 }
+const EMAIL_RE=/^[^\s@,;"<>]+@[^\s@,;"<>]+\.[^\s@,;"<>]+$/;
 function notifyEmails(targets, ownerId){ const set=new Set(); const missing=[];
-  const add=id=>{ const u=USERS.find(x=>x.id===id); if(u){ if(u.email)set.add(u.email); else missing.push(u.full_name); } };
-  if(targets.includes('owner')&&ownerId) add(ownerId);
-  if(targets.includes('managers')){ const m=USERS.filter(u=>u.role==='manager'); if(!m.length)missing.push('(no managers)'); m.forEach(u=>u.email?set.add(u.email):missing.push(u.full_name)); }
-  if(targets.includes('pi')){ const p=USERS.filter(u=>u.role==='pi'); if(!p.length)missing.push('(no PI)'); p.forEach(u=>u.email?set.add(u.email):missing.push(u.full_name)); }
+  const add=u=>{ if(u.email&&EMAIL_RE.test(u.email.trim()))set.add(u.email.trim()); else missing.push(u.full_name); };
+  if(targets.includes('owner')){ const u=ownerId&&USERS.find(x=>x.id===ownerId); if(u)add(u); else missing.push('(no owner — routed to breeding)'); }
+  if(targets.includes('managers')){ const m=USERS.filter(u=>u.role==='manager'); if(!m.length)missing.push('(no managers)'); m.forEach(add); }
+  if(targets.includes('pi')){ const p=USERS.filter(u=>u.role==='pi'); if(!p.length)missing.push('(no PI)'); p.forEach(add); }
   return {emails:[...set], missing:[...new Set(missing)]}; }
 function openReqMail(emails, rec){
-  const body=`Hi,\n\nA mouse request was filed in the Lee Lab colony DB:\n\n  ${rec.subject}\n  ${rec.body||''}\n  Cohort: ${rec.needed_cohort||'any'} · Sex: ${rec.needed_sex||'any'} · Qty: ${rec.quantity||'—'}\n  Status: ${rec.status}\n\nFiled by ${USER.full_name}. Please review it in the colony app.\n`;
-  window.location.href='mailto:'+emails.join(',')+'?subject='+encodeURIComponent('Mouse request: '+rec.subject)+'&body='+encodeURIComponent(body); }
+  const body=(`Hi,\n\nA mouse request was filed in the Lee Lab colony DB:\n\n  ${rec.subject}\n  ${rec.body||''}\n  Cohort: ${rec.needed_cohort||'any'} · Sex: ${rec.needed_sex||'any'} · Qty: ${rec.quantity||'—'}\n  Status: ${rec.status}\n\nFiled by ${USER.full_name}. Please review it in the colony app.\n`).slice(0,1200);
+  window.location.href='mailto:'+emails.map(encodeURIComponent).join(',')+'?subject='+encodeURIComponent('Mouse request: '+rec.subject)+'&body='+encodeURIComponent(body); }
 
 let curReq=null;
 async function openReq(id){
@@ -1317,28 +1321,27 @@ window.__rq={
       quantity:g('q_qty')?+g('q_qty'):null, priority:0};
     try{
       const mouseNo=g('q_mouse');
-      let hit=null;
+      let hit=null, realOwner=null; // the genuine responsible_person, not the breeding fallback
       if(mouseNo){
         hit=(await api('mice?select=id,responsible_person&status=in.(healthy,diseased)&tag_id=eq.'+encodeURIComponent(mouseNo)+'&limit=1')).data;
-        if(hit&&hit[0]){ rec.target_mouse_id=hit[0].id; rec.assignee_id=hit[0].responsible_person||managerId(); rec.status='open'; }
+        if(hit&&hit[0]){ rec.target_mouse_id=hit[0].id; realOwner=hit[0].responsible_person||null; rec.assignee_id=realOwner||managerId(); rec.status='open'; }
         else { rec.status='routed_to_breeding'; rec.assignee_id=managerId(); }
       } else {
         let mq='mice?select=id,responsible_person&status=in.(healthy,diseased)&limit=1';
         if(rec.needed_sex)mq+='&sex=eq.'+rec.needed_sex;
         if(rec.needed_cohort)mq+='&cohort=eq.'+encodeURIComponent(rec.needed_cohort);
         hit=(await api(mq)).data;
-        if(hit&&hit[0]){ rec.assignee_id=hit[0].responsible_person||managerId(); rec.status='open'; }
+        if(hit&&hit[0]){ realOwner=hit[0].responsible_person||null; rec.assignee_id=realOwner||managerId(); rec.status='open'; }
         else { rec.status='routed_to_breeding'; rec.assignee_id=managerId(); }
       }
       const r=await api('requests',{method:'POST',headers:{Prefer:'return=representation'},body:[rec]});
       await audit('requests', r.data&&r.data[0]&&r.data[0].id, 'INSERT', null, rec);
-      // notify chosen people via a pre-filled email
+      // notify chosen people via a pre-filled email (owner = real owner, not the breeding fallback)
       const notif=[]; if($('q_n_owner').checked)notif.push('owner'); if($('q_n_mgr').checked)notif.push('managers'); if($('q_n_pi').checked)notif.push('pi');
       let notifyMsg='';
-      if(notif.length){ const {emails,missing}=notifyEmails(notif, rec.assignee_id);
-        if(emails.length) openReqMail(emails, rec);
-        if(missing.length) notifyMsg=' · no email on file for: '+missing.join(', ');
-        else if(!emails.length) notifyMsg=' · no emails on file for the selected people';
+      if(notif.length){ const {emails,missing}=notifyEmails(notif, realOwner);
+        if(emails.length){ openReqMail(emails, rec); notifyMsg=' · draft email opened for '+emails.length+' recipient'+(emails.length>1?'s':''); }
+        if(missing.length) notifyMsg+=' · no email yet for: '+missing.join(', ');
       }
       $('reqOverlay').classList.remove('open');
       toast((rec.status==='routed_to_breeding' ? 'Sent to breeding queue (Bertha)' : 'Request sent to '+(userName(rec.assignee_id)||'owner'))+notifyMsg);
