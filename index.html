@@ -890,31 +890,30 @@ async function renderMine(){
     if(!rows.length){ $('mineList').innerHTML='<div class="empty">No mice yet. Add one in the “＋ Add cohort” tab.</div>'; return; }
     const groups=new Map();
     rows.forEach(m=>{ const k=m.batch_id||('nb¦'+m.cohort+'¦'+m.genotype_label+'¦'+m.dob); if(!groups.has(k))groups.set(k,[]); groups.get(k).push(m); });
-    MINE_GROUPS={}; let html='', gi=0;
+    MINE_GROUPS={};
+    let html=`<div class="tablewrap"><table><thead><tr><th>Genotype</th><th>Strain</th><th>Mice</th><th>Age</th><th>Location</th><th>Status</th><th>Experiments</th><th>Added</th><th></th></tr></thead><tbody>`;
+    let gi=0;
     for(const ms of groups.values()){
       MINE_GROUPS[gi]=ms; const g=ms[0];
-      const sexes=['M','F','U'].map(s=>{const c=ms.filter(m=>m.sex===s).length;return c?c+s:null;}).filter(Boolean).join(' · ')||'—';
-      const owners=[...new Set(ms.map(m=>m.owner_name).filter(Boolean))];
+      const sexes=['M','F','U'].map(s=>{const c=ms.filter(m=>m.sex===s).length;return c?c+s:null;}).filter(Boolean).join('·')||'—';
       const locs=[...new Set(ms.map(m=>m.current_location).filter(Boolean))];
       const pend=ms.filter(m=>!m.tag_id).length;
       const exps=dedupCI(ms.flatMap(m=>(m.experiments||'').split(',').map(s=>s.trim()).filter(Boolean)));
       const stat=[...new Set(ms.map(m=>m.status))];
-      html+=`<div class="card" style="margin-bottom:10px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
-          <div>
-            <div style="font-size:15px;font-weight:600"><span class="cohort">${esc(g.cohort||'—')}</span> · ${esc(g.genotype_label||'—')}</div>
-            <div class="sub" style="color:var(--muted);font-size:12px;margin-top:2px"><b>${ms.length}</b> mice (${esc(sexes)}) · ${g.age_months!=null?(g.dob_estimated?'~':'')+g.age_months+' mo':'age —'} · ${esc(owners.length>1?'owners: mixed':(owners[0]||'—'))}${pend?` · <span style="color:var(--amber)">${pend} pending #</span>`:''}</div>
-            <div class="sub" style="color:var(--muted);font-size:12px">📍 ${esc(locs.length>1?'mixed locations':(locs[0]||'—'))} · ${stat.map(s=>`<span class="badge b-${esc(s)}">${esc(s)}</span>`).join(' ')} · added ${esc((g.created_at||'').slice(0,10))}</div>
-            ${exps.length?`<div class="sub" style="color:var(--muted);font-size:12px;margin-top:2px">🧪 ${esc(exps.join(', '))}</div>`:''}
-          </div>
-          <div style="display:flex;gap:6px">
-            <button class="btn p sm" onclick="__cohort.open(${gi})">Modify</button>
-            <button class="btn r sm" onclick="__cohort.del(${gi})">Delete</button>
-          </div>
-        </div>
-      </div>`;
+      html+=`<tr>
+        <td class="cohort">${esc(g.cohort||'—')}</td>
+        <td>${esc(g.genotype_label||'—')}</td>
+        <td style="white-space:nowrap"><b>${ms.length}</b> <span style="color:var(--muted);font-size:11px">${esc(sexes)}</span>${pend?` <span style="color:var(--amber);font-size:11px">${pend} pend</span>`:''}</td>
+        <td style="white-space:nowrap">${g.age_months!=null?(g.dob_estimated?'~':'')+g.age_months+' mo':'—'}</td>
+        <td style="max-width:190px;overflow:hidden;text-overflow:ellipsis" title="${esc(locs.join('  |  '))}">${esc(locs.length>1?'mixed':(locs[0]||'—'))}</td>
+        <td style="white-space:nowrap">${stat.map(s=>`<span class="badge b-${esc(s)}">${esc(s)}</span>`).join(' ')}</td>
+        <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis" title="${esc(exps.join(', '))}">${exps.length?esc(exps.join(', ')):'—'}</td>
+        <td style="white-space:nowrap;font-size:12px;color:var(--muted)">${esc((g.created_at||'').slice(0,10))}</td>
+        <td style="white-space:nowrap"><button class="btn p sm" onclick="__cohort.open(${gi})">Modify</button> <button class="btn r sm" onclick="__cohort.del(${gi})">Delete</button></td>
+      </tr>`;
       gi++;
     }
+    html+='</tbody></table></div>';
     $('mineList').innerHTML=html;
   }catch(e){ $('mineList').innerHTML=`<div class="empty">Error: ${esc(e.message)}</div>`; }
 }
@@ -947,12 +946,14 @@ window.__cohort={
       </div>
       <div class="section-h">Add experiments (accumulates — blank keeps existing)</div>
       <div class="field"><input class="in" id="cm_exp" placeholder="e.g. HCM, Social">${expChips('cm_exp')}</div>
-      <details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px;color:var(--accent)">Edit individual mouse numbers &amp; cages (${ms.length})</summary>
-        <div style="display:flex;gap:8px;font-size:11px;color:var(--muted);margin:6px 0 2px"><span style="width:34px">Sex</span><span style="width:150px">Mouse #</span><span>Cage</span></div>
+      <details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px;color:var(--accent)">Edit / remove individual mice (${ms.length})</summary>
+        <div class="sub" style="color:var(--muted);font-size:12px;margin:6px 0 4px">Fix a mouse # or cage, or tick <b>remove</b> to delete a mouse from this cohort (e.g. if the count is too high).</div>
+        <div style="display:flex;gap:8px;font-size:11px;color:var(--muted);margin:0 0 2px"><span style="width:34px">Sex</span><span style="width:150px">Mouse #</span><span style="width:90px">Cage</span><span>Remove</span></div>
         <div style="max-height:220px;overflow:auto">${ms.map(m=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:5px">
           <span style="width:34px;color:var(--muted);font-size:12px">${esc(m.sex||'?')}</span>
           <input class="in cm_num" data-id="${esc(m.id)}" data-orig="${esc(m.tag_id||'')}" value="${esc(m.tag_id||'')}" placeholder="(pending)" style="width:150px">
-          <input class="in cm_cage" data-id="${esc(m.id)}" data-orig="${esc(m.cage||'')}" value="${esc(m.cage||'')}" placeholder="cage" style="width:90px"></div>`).join('')}</div>
+          <input class="in cm_cage" data-id="${esc(m.id)}" data-orig="${esc(m.cage||'')}" value="${esc(m.cage||'')}" placeholder="cage" style="width:90px">
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--red)"><input type="checkbox" class="cm_del" data-id="${esc(m.id)}"> ✕</label></div>`).join('')}</div>
       </details>
       <div class="modal-actions"><button class="btn sm" onclick="__cohort.close()">Cancel</button><button class="btn p" onclick="__cohort.save(${gi})">Apply</button></div>
       <div class="err" id="cm_err"></div>`;
@@ -975,30 +976,37 @@ window.__cohort={
     const uniformChanged=Object.keys(patch).length>2;
     const numEdits=[...$('cohortModal').querySelectorAll('.cm_num')].filter(el=>el.value.trim()!==(el.dataset.orig||'').trim()).map(el=>({id:el.dataset.id, tag:el.value.trim()||null}));
     const cageEdits=[...$('cohortModal').querySelectorAll('.cm_cage')].filter(el=>el.value.trim()!==(el.dataset.orig||'').trim()).map(el=>({id:el.dataset.id, cage:el.value.trim()||null}));
+    const delIds=[...$('cohortModal').querySelectorAll('.cm_del:checked')].map(el=>el.dataset.id);
+    const delSet=new Set(delIds), keepIds=ids.filter(id=>!delSet.has(id));
     const perMouse=new Map();
     numEdits.forEach(e=>perMouse.set(e.id,Object.assign(perMouse.get(e.id)||{},{tag_id:e.tag})));
     cageEdits.forEach(e=>perMouse.set(e.id,Object.assign(perMouse.get(e.id)||{},{cage:e.cage})));
+    delIds.forEach(id=>perMouse.delete(id)); // don't patch mice we're deleting
     const addExp=v('cm_exp'); const newTags=addExp?addExp.split(',').map(s=>s.trim()).filter(Boolean):[];
-    if(!uniformChanged && !perMouse.size && !newTags.length){ $('cm_err').textContent='Change at least one field.'; return; }
-    // reject a mouse number used twice within the cohort after the edits
-    const finalTags=ms.map(m=>{ const e=numEdits.find(x=>x.id===m.id); return e?e.tag:(m.tag_id||null); }).filter(Boolean);
+    if(!uniformChanged && !perMouse.size && !newTags.length && !delIds.length){ $('cm_err').textContent='Change at least one field.'; return; }
+    // reject a mouse number used twice within the cohort after the edits (ignoring removed mice)
+    const finalTags=ms.filter(m=>!delSet.has(m.id)).map(m=>{ const e=numEdits.find(x=>x.id===m.id); return e?e.tag:(m.tag_id||null); }).filter(Boolean);
     const dupTag=finalTags.find((t,i)=>finalTags.indexOf(t)!==i);
     if(dupTag){ $('cm_err').textContent=`Number ${dupTag} would be used more than once in this cohort.`; return; }
-    if(locChanged) ms.forEach(m=>{ if(!perMouse.has(m.id))perMouse.set(m.id,{}); }); // every mouse needs its current_location rebuilt (with its own cage)
+    if(locChanged) ms.forEach(m=>{ if(!delSet.has(m.id) && !perMouse.has(m.id))perMouse.set(m.id,{}); }); // every kept mouse needs its current_location rebuilt (with its own cage)
+    if(delIds.length && !confirm(`Remove ${delIds.length} mouse${delIds.length>1?'s':''} from this cohort? This permanently deletes ${delIds.length>1?'them':'it'}.`)) return;
     try{
-      if(uniformChanged){ const done=await inChunks(ids,'PATCH',{Prefer:'return=representation'},patch);
+      if(delIds.length){ const dr=await inChunks(delIds,'DELETE',{Prefer:'return=representation'});
+        if(!dr.length){ $('cm_err').textContent='Delete blocked by DB — run migration_002.sql'; return; }
+        await audit('mice',null,'COHORT_REMOVE',{batch_id:g.batch_id,count:dr.length},null); }
+      if(uniformChanged && keepIds.length){ const done=await inChunks(keepIds,'PATCH',{Prefer:'return=representation'},patch);
         await audit('mice',null,'COHORT_MODIFY',{batch_id:g.batch_id,count:done.length},patch); }
-      if(newTags.length){ const byExp=new Map(); ms.forEach(m=>{ const cur=m.experiments||''; if(!byExp.has(cur))byExp.set(cur,[]); byExp.get(cur).push(m.id); });
+      if(newTags.length){ const byExp=new Map(); ms.forEach(m=>{ if(delSet.has(m.id))return; const cur=m.experiments||''; if(!byExp.has(cur))byExp.set(cur,[]); byExp.get(cur).push(m.id); });
         for(const pair of byExp){ const merged=dedupCI(pair[0].split(',').map(s=>s.trim()).filter(Boolean).concat(newTags)).join(', ');
           await inChunks(pair[1],'PATCH',{Prefer:'return=minimal'},Object.assign({experiments:merged},stamp)); }
-        await audit('mice',null,'COHORT_ADD_EXPERIMENTS',{batch_id:g.batch_id,added:newTags.join(', '),count:ids.length},null); }
+        await audit('mice',null,'COHORT_ADD_EXPERIMENTS',{batch_id:g.batch_id,added:newTags.join(', '),count:keepIds.length},null); }
       if(perMouse.size){ for(const [id,ch] of perMouse){ const m=ms.find(x=>x.id===id)||{}; const p=Object.assign({},ch,stamp);
           if(locChanged || 'cage' in ch){ const base={facility:'facility' in patch?patch.facility:m.facility, room:'room' in patch?patch.room:m.room,
             rack:'rack' in patch?patch.rack:m.rack, rack_row:'rack_row' in patch?patch.rack_row:m.rack_row, rack_col:'rack_col' in patch?patch.rack_col:m.rack_col, cage:'cage' in ch?ch.cage:m.cage};
             p.current_location=buildLoc(base)||null; }
           await api(`mice?id=eq.${id}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:p}); }
         await audit('mice',null,'COHORT_RENUMBER',{batch_id:g.batch_id,count:perMouse.size},null); }
-      toast('Cohort updated'); __cohort.close(); renderMine(); loadColony();
+      toast('Cohort updated'+(delIds.length?` · removed ${delIds.length}`:'')); __cohort.close(); renderMine(); loadColony();
     }catch(e){ $('cm_err').textContent=e.message; } },
   del:async(gi)=>{ const ms=MINE_GROUPS[gi]; if(!ms)return; const ids=ms.map(m=>m.id);
     if(!confirm(`Delete this whole cohort — ${ids.length} mice (${ms[0].cohort} ${ms[0].genotype_label||''})? This can't be undone.`))return;
