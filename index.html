@@ -433,7 +433,7 @@ function renderGroups(rows){
   if(!rows.length){ $('tbody').innerHTML='<tr><td colspan="9" class="empty">No mice match. Adjust filters.</td></tr>'; $('pageInfo').textContent=''; syncBatchBar(); return; }
   const groups=new Map();
   rows.forEach(m=>{ const k=[m.cohort,m.genotype_label,m.sex,m.dob,m.status].join('¦'); if(!groups.has(k))groups.set(k,[]); groups.get(k).push(m); });
-  const uniq=arr=>{ const s=[...new Set(arr.filter(x=>x!=null&&x!==''))]; return s.length===0?'—':s.length===1?esc(s[0]):`mixed (${s.length})`; };
+  const uniq=arr=>{ const s=[...new Set(arr.map(x=>(x==null||x==='')?'∅':x))]; return s.length!==1?`mixed (${s.length})`:(s[0]==='∅'?'—':esc(s[0])); };
   let html='', gi=0;
   for(const ms of groups.values()){
     const g=ms[0], ids=ms.map(m=>m.id), allSel=ids.every(id=>SEL.has(id));
@@ -462,12 +462,11 @@ function renderGroups(rows){
   $('pageInfo').textContent=`${rows.length} mice · ${groups.size} group${groups.size!==1?'s':''}`;
   $('tbody').querySelectorAll('tr.grp').forEach(tr=>{
     tr.onclick=e=>{ if(e.target.classList.contains('grpsel'))return; tr.classList.toggle('open'); $('tbody').querySelectorAll('.g-'+tr.dataset.gi).forEach(r=>r.classList.toggle('hidden')); };
-    tr.querySelector('.grpsel').onchange=e=>{ const on=e.target.checked; tr.dataset.ids.split(',').forEach(id=>{ on?SEL.add(id):SEL.delete(id); });
-      $('tbody').querySelectorAll('.g-'+tr.dataset.gi+' .rowsel').forEach(cb=>cb.checked=on); syncBatchBar(); };
+    tr.querySelector('.grpsel').onchange=e=>{ const on=e.target.checked; tr.dataset.ids.split(',').forEach(id=>{ on?SEL.add(id):SEL.delete(id); }); syncChecks(); };
   });
   $('tbody').querySelectorAll('tr.member').forEach(tr=>tr.onclick=e=>{ if(e.target.classList.contains('rowsel'))return; openDetail(tr.dataset.id); });
-  $('tbody').querySelectorAll('.member .rowsel').forEach(cb=>cb.onchange=()=>{ cb.checked?SEL.add(cb.dataset.id):SEL.delete(cb.dataset.id); syncBatchBar(); });
-  syncBatchBar();
+  $('tbody').querySelectorAll('.member .rowsel').forEach(cb=>cb.onchange=()=>{ cb.checked?SEL.add(cb.dataset.id):SEL.delete(cb.dataset.id); syncChecks(); });
+  syncChecks();
 }
 function renderHead(){
   $('thead').innerHTML='<th class="selcol"><input type="checkbox" id="selAll" title="Select all on this page"></th>'+
@@ -489,11 +488,19 @@ function renderRows(rows){
     <td><span class="badge b-${esc(m.status)}">${esc(m.status)}</span>${m.is_stale?'<span class="badge b-stale">stale</span>':''}</td>
   </tr>`).join('');
   $('tbody').querySelectorAll('tr').forEach(tr=>tr.onclick=(e)=>{ if(e.target.classList.contains('rowsel'))return; openDetail(tr.dataset.id); });
-  $('tbody').querySelectorAll('.rowsel').forEach(cb=>cb.onchange=()=>{ if(cb.checked)SEL.add(cb.dataset.id); else SEL.delete(cb.dataset.id); syncSelAll(); syncBatchBar(); });
-  syncSelAll(); syncBatchBar();
+  $('tbody').querySelectorAll('.rowsel').forEach(cb=>cb.onchange=()=>{ if(cb.checked)SEL.add(cb.dataset.id); else SEL.delete(cb.dataset.id); syncChecks(); });
+  syncChecks();
 }
-function syncSelAll(){ const boxes=[...$('tbody').querySelectorAll('.rowsel')], sa=$('selAll'); if(sa) sa.checked=boxes.length>0&&boxes.every(b=>b.checked); }
-function toggleAllOnPage(on){ $('tbody').querySelectorAll('.rowsel').forEach(cb=>{ cb.checked=on; if(on)SEL.add(cb.dataset.id); else SEL.delete(cb.dataset.id); }); syncBatchBar(); }
+// single source of truth: re-derive every visible checkbox (row, group, select-all) from SEL
+function syncChecks(){
+  $('tbody').querySelectorAll('.rowsel').forEach(cb=>cb.checked=SEL.has(cb.dataset.id));
+  $('tbody').querySelectorAll('tr.grp').forEach(tr=>{ const ids=tr.dataset.ids?tr.dataset.ids.split(','):[]; const cb=tr.querySelector('.grpsel');
+    const sel=ids.filter(id=>SEL.has(id)).length; cb.checked=ids.length>0&&sel===ids.length; cb.indeterminate=sel>0&&sel<ids.length; });
+  const sa=$('selAll'); if(sa){ const boxes=[...$('tbody').querySelectorAll('.rowsel')]; sa.checked=boxes.length>0&&boxes.every(b=>b.checked); }
+  syncBatchBar();
+}
+function toggleAllOnPage(on){ $('tbody').querySelectorAll('.rowsel').forEach(cb=>{ if(on)SEL.add(cb.dataset.id); else SEL.delete(cb.dataset.id); }); syncChecks(); }
+function syncMine(){ $('fMine').classList.toggle('active', !!(USER&&USER.id&&$('fOwner').value===USER.id)); }
 function syncBatchBar(){ const n=SEL.size; $('batchBar').classList.toggle('hidden',n===0); $('batchCount').textContent=n+' selected';
   const more=total>n; $('batchAll').classList.toggle('hidden',!more); $('batchAll').textContent=`Select all ${total}`; }
 function fillBatchValue(){ const f=$('batchField').value; let o='';
@@ -501,9 +508,9 @@ function fillBatchValue(){ const f=$('batchField').value; let o='';
   else if(f==='responsible_person') o=USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
   else o=['alive','sacrificed','transferred','dead','unknown'].map(s=>`<option>${s}</option>`).join('');
   $('batchValue').innerHTML=o; }
-['fSearch','fLoc'].forEach(id=>$(id).addEventListener('input',debounce(()=>{page=0;loadColony();},300)));
-['fSex','fCohort','fFac','fStatus','fAgeMin','fAgeMax','fOwner'].forEach(id=>$(id).addEventListener('change',()=>{page=0;loadColony();}));
-$('fClear').onclick=()=>{['fSearch','fLoc','fAgeMin','fAgeMax'].forEach(i=>$(i).value='');['fSex','fCohort','fFac','fOwner'].forEach(i=>$(i).value='');$('fStatus').value='alive';page=0;loadColony();};
+['fSearch','fLoc'].forEach(id=>$(id).addEventListener('input',debounce(()=>{SEL.clear();page=0;loadColony();},300))); // changing the filtered set drops the selection so a batch op can't hit rows you can no longer see
+['fSex','fCohort','fFac','fStatus','fAgeMin','fAgeMax','fOwner'].forEach(id=>$(id).addEventListener('change',()=>{SEL.clear();syncMine();page=0;loadColony();}));
+$('fClear').onclick=()=>{['fSearch','fLoc','fAgeMin','fAgeMax'].forEach(i=>$(i).value='');['fSex','fCohort','fFac','fOwner'].forEach(i=>$(i).value='');$('fStatus').value='alive';SEL.clear();syncMine();page=0;loadColony();};
 $('prev').onclick=()=>{if(page>0){page--;loadColony();}};
 $('next').onclick=()=>{if((page+1)*pageSize<total){page++;loadColony();}};
 function debounce(fn,ms){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);};}
@@ -515,14 +522,17 @@ $('viewGrp').onclick=()=>setView('grp');
 
 // ---------- Mine toggle + batch actions ----------
 $('fMine').onclick=()=>{ if(!(USER&&USER.id))return;
-  const on=$('fOwner').value!==USER.id; $('fOwner').value=on?USER.id:''; $('fMine').classList.toggle('active',on); page=0; loadColony(); };
+  const on=$('fOwner').value!==USER.id; $('fOwner').value=on?USER.id:''; SEL.clear(); syncMine(); page=0; loadColony(); };
 $('batchField').onchange=fillBatchValue;
-$('batchClear').onclick=()=>{ SEL.clear(); $('tbody').querySelectorAll('.rowsel').forEach(cb=>cb.checked=false); syncSelAll(); syncBatchBar(); };
-$('batchAll').onclick=async()=>{ try{ const r=await api(buildQuery(true).replace(/select=[^&]*/,'select=id')); (r.data||[]).forEach(x=>SEL.add(x.id)); }catch(e){ toast('Failed: '+e.message); return; }
-  $('tbody').querySelectorAll('.rowsel').forEach(cb=>cb.checked=SEL.has(cb.dataset.id)); syncSelAll(); syncBatchBar(); };
+$('batchClear').onclick=()=>{ SEL.clear(); syncChecks(); };
+$('batchAll').onclick=async()=>{ try{ const r=await api(buildQuery(true).replace(/select=[^&]*/,'select=id')); (r.data||[]).forEach(x=>SEL.add(x.id)); }catch(e){ toast('Failed: '+e.message); return; } syncChecks(); };
+// chunk ids so id=in.(...) never overruns the URL length limit; sum the ROWS ACTUALLY affected (return=representation) rather than the intended count
+async function inChunks(ids,method,headers,body){ let rows=[]; for(let i=0;i<ids.length;i+=100){ const c=ids.slice(i,i+100);
+  const r=await api(`mice?id=in.(${c.join(',')})`,{method,headers,body}); rows=rows.concat(r.data||[]); } return rows; }
 async function batchPatch(patch,verb){ const ids=[...SEL]; if(!ids.length)return;
-  try{ await api(`mice?id=in.(${ids.join(',')})`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:Object.assign({updated_by:USER.id,updated_at:new Date().toISOString()},patch)});
-    await audit('mice',null,verb,null,Object.assign({count:ids.length},patch)); toast(`${verb==='BATCH_VERIFY'?'Verified':'Updated'} ${ids.length} mice`); SEL.clear(); loadColony();
+  try{ const rows=await inChunks(ids,'PATCH',{Prefer:'return=representation'},Object.assign({updated_by:USER.id,updated_at:new Date().toISOString()},patch));
+    const n=rows.length; await audit('mice',null,verb,null,Object.assign({count:n,requested:ids.length},patch));
+    toast(`${verb==='BATCH_VERIFY'?'Verified':'Updated'} ${n}${n!==ids.length?' of '+ids.length:''} mice`); SEL.clear(); loadColony();
   }catch(e){ toast('Update failed: '+e.message); } }
 $('batchApply').onclick=()=>{ const n=SEL.size; if(!n)return; const f=$('batchField').value, v=$('batchValue').value;
   const fl=$('batchField').selectedOptions[0].text, vl=$('batchValue').selectedOptions[0].text;
@@ -530,9 +540,9 @@ $('batchApply').onclick=()=>{ const n=SEL.size; if(!n)return; const f=$('batchFi
 $('batchVerify').onclick=()=>{ const n=SEL.size; if(!n)return; if(!confirm(`Mark ${n} mice verified today?`))return; batchPatch({last_verified:todayStr()},'BATCH_VERIFY'); };
 $('batchDelete').onclick=async()=>{ const ids=[...SEL]; if(!ids.length)return;
   if(!confirm(`Delete ${ids.length} mice permanently? This can't be undone.`))return;
-  try{ const r=await api(`mice?id=in.(${ids.join(',')})`,{method:'DELETE',headers:{Prefer:'return=representation'}});
-    if(!r.data||!r.data.length){ toast('Delete blocked by DB — run migration_002.sql'); return; }
-    await audit('mice',null,'BATCH_DELETE',{count:r.data.length},null); toast(`Deleted ${r.data.length} mice`); SEL.clear(); loadColony();
+  try{ const rows=await inChunks(ids,'DELETE',{Prefer:'return=representation'});
+    if(!rows.length){ toast('Delete blocked by DB — run migration_002.sql'); return; }
+    await audit('mice',null,'BATCH_DELETE',{count:rows.length,requested:ids.length},null); toast(`Deleted ${rows.length}${rows.length!==ids.length?' of '+ids.length:''} mice`); SEL.clear(); loadColony();
   }catch(e){ toast('Delete failed: '+e.message); } };
 
 $('exportCsv').onclick=async()=>{
