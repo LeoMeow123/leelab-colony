@@ -21,7 +21,7 @@ Supabase Auth (magic-link or Google SSO) **without changing the schema**.
 
 ## One-time setup (~10 min)
 1. **Create a Supabase project** (supabase.com → New project; free tier is fine for now). Pick a region near Salk (West US).
-2. **Run the schema:** Supabase → SQL Editor → New query → paste all of `schema.sql` → Run. (Run it once.) `schema.sql` already includes the cohort columns; **if you set up before those existed, also run `migration_001.sql` once** (safe to re-run — the app shows a banner if it's missing).
+2. **Run the schema:** Supabase → SQL Editor → New query → paste all of `schema.sql` → Run. (Run it once.) `schema.sql` already includes the latest columns; **on an existing project, run the `migration_00*.sql` files in order** (001 cohort columns, 002 delete policy, 003 experiments + health status) — each is safe to re-run, and the app shows a banner if 001 is missing.
 3. **Add people:** either in the app's **People** tab after logging in, or in SQL:
    ```sql
    insert into app_users (full_name, role) values

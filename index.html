@@ -88,7 +88,8 @@
   tbody tr{cursor:pointer}
   tbody tr:hover{background:var(--bg3)}
   .badge{font-size:10px;padding:2px 7px;border-radius:9px;font-weight:700}
-  .b-alive{background:rgba(52,211,153,.15);color:var(--green)}
+  .b-healthy,.b-alive{background:rgba(52,211,153,.15);color:var(--green)}
+  .b-diseased{background:rgba(251,191,36,.18);color:var(--amber)}
   .b-dead,.b-sacrificed{background:rgba(122,127,148,.2);color:var(--muted)}
   .b-transferred{background:rgba(79,156,249,.15);color:var(--accent)}
   .b-stale{background:rgba(251,191,36,.15);color:var(--amber);margin-left:5px}
@@ -166,7 +167,7 @@
       <div class="f"><label>Sex</label><select class="in" id="fSex"><option value="">any</option><option>M</option><option>F</option><option>U</option></select></div>
       <div class="f"><label>Cohort</label><select class="in" id="fCohort"><option value="">any</option></select></div>
       <div class="f"><label>Facility</label><select class="in" id="fFac"><option value="">any</option></select></div>
-      <div class="f"><label>Status</label><select class="in" id="fStatus"><option value="alive">alive</option><option value="">any</option><option>sacrificed</option><option>transferred</option><option>dead</option><option>unknown</option></select></div>
+      <div class="f"><label>Status</label><select class="in" id="fStatus"><option value="healthy">healthy</option><option value="">any</option><option>diseased</option><option>sacrificed</option><option>dead</option><option>transferred</option><option>unknown</option></select></div>
       <div class="f"><label>Age ≥ (mo)</label><input class="in" id="fAgeMin" type="number" step="0.1" placeholder="min"></div>
       <div class="f"><label>Age ≤ (mo)</label><input class="in" id="fAgeMax" type="number" step="0.1" placeholder="max"></div>
       <div class="f"><label>Owner</label><select class="in" id="fOwner"><option value="">any</option></select></div>
@@ -404,6 +405,11 @@ const COLS=[
   {k:'genotype_label',label:'Genotype'},{k:'age_months',label:'Age (mo)'},
   {k:'current_location',label:'Location'},{k:'owner_name',label:'Owner'},{k:'status',label:'Status'},
 ];
+const STATUSES=['healthy','diseased','sacrificed','dead','transferred','unknown'];
+const EXPERIMENTS=['T-maze','Social','HCM','Open field','Barnes maze','Fear conditioning','Rotarod','Elevated plus maze','Y-maze','Novel object'];
+function expChips(inputId){ return `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px">${EXPERIMENTS.map(e=>`<button type="button" class="btn sm" style="font-size:11px;padding:2px 7px" onclick="expAdd('${inputId}','${esc(e)}')">+ ${esc(e)}</button>`).join('')}</div>`; }
+function expAdd(inputId,tag){ const el=$(inputId); const cur=el.value.split(',').map(s=>s.trim()).filter(Boolean); if(!cur.some(x=>x.toLowerCase()===tag.toLowerCase()))cur.push(tag); el.value=cur.join(', '); el.focus(); }
+window.expAdd=expAdd;
 let sortKey='age_months', sortDir='asc', page=0, pageSize=50, total=0;
 let SEL=new Set(); // selected mouse ids for batch actions (persists across pages/filters until cleared)
 let viewMode='ind'; // 'ind' = one row per mouse, 'grp' = collapsed by genotype·sex·age·status
@@ -426,7 +432,7 @@ function buildQuery(forExport){
   if($('fSex').value) p.push('sex=eq.'+$('fSex').value);
   if($('fCohort').value) p.push('cohort=eq.'+encodeURIComponent($('fCohort').value));
   if($('fFac').value) p.push('facility=eq.'+encodeURIComponent($('fFac').value));
-  if($('fStatus').value) p.push('status=eq.'+$('fStatus').value);
+  if($('fStatus').value && !q) p.push('status=eq.'+$('fStatus').value); // when searching a specific mouse #, show it whatever its status (alive/dead/…)
   if($('fAgeMin').value) p.push('age_months=gte.'+$('fAgeMin').value);
   if($('fAgeMax').value) p.push('age_months=lte.'+$('fAgeMax').value);
   if($('fOwner').value) p.push('responsible_person=eq.'+$('fOwner').value);
@@ -543,11 +549,11 @@ function fillBatchValue(){ const f=$('batchField').value;
   let o='';
   if(f==='cohort') o=COHORTS.map(c=>`<option>${esc(c)}</option>`).join('');
   else if(f==='responsible_person') o=USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
-  else o=['alive','sacrificed','transferred','dead','unknown'].map(s=>`<option>${s}</option>`).join('');
+  else o=STATUSES.map(s=>`<option>${s}</option>`).join('');
   $('batchValWrap').innerHTML=`<select class="in" id="batchValue">${o}</select>`; }
 ['fSearch','fLoc'].forEach(id=>$(id).addEventListener('input',debounce(()=>{SEL.clear();page=0;loadColony();},300))); // changing the filtered set drops the selection so a batch op can't hit rows you can no longer see
 ['fSex','fCohort','fFac','fStatus','fAgeMin','fAgeMax','fOwner'].forEach(id=>$(id).addEventListener('change',()=>{SEL.clear();syncMine();page=0;loadColony();}));
-$('fClear').onclick=()=>{['fSearch','fLoc','fAgeMin','fAgeMax'].forEach(i=>$(i).value='');['fSex','fCohort','fFac','fOwner'].forEach(i=>$(i).value='');$('fStatus').value='alive';SEL.clear();syncMine();page=0;loadColony();};
+$('fClear').onclick=()=>{['fSearch','fLoc','fAgeMin','fAgeMax'].forEach(i=>$(i).value='');['fSex','fCohort','fFac','fOwner'].forEach(i=>$(i).value='');$('fStatus').value='healthy';SEL.clear();syncMine();page=0;loadColony();};
 $('prev').onclick=()=>{if(page>0){page--;loadColony();}};
 $('next').onclick=()=>{if((page+1)*pageSize<total){page++;loadColony();}};
 function debounce(fn,ms){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);};}
@@ -638,6 +644,7 @@ function renderDetail(m,em,pr){
       <div class="kv"><span class="k">Facility</span><span>${esc(m.facility||'—')}</span></div>
     </div>
     <div class="kv"><span class="k">Genotype</span><span>${esc(m.genotype_label||'—')}</span></div>
+    <div class="kv"><span class="k">Experiments</span><span>${esc(m.experiments||'—')}</span></div>
     ${m.notes?`<div class="kv"><span class="k">Notes</span><span>${esc(m.notes)}</span></div>`:''}
     <div class="section-h">Timeline</div>
     <div class="timeline">${tl.length?tl.map(i=>`<div class="tl-item"><span class="dt">${esc(i.date||'—')}</span><span class="tag">${esc(i.tag)}</span><span>${esc(i.txt)}</span></div>`).join(''):'<div style="color:var(--muted);font-size:12px">No experiments or procedures logged.</div>'}</div>
@@ -657,7 +664,7 @@ function fieldsHtml(m){
     <div class="field"><label>DOB estimated?</label><select class="in" id="e_dobest"><option value="">no</option><option value="1"${m.dob_estimated?' selected':''}>yes</option></select></div>
     <div class="field"><label>Cohort / genotype</label><select class="in" id="e_cohort">${cohortOptions(m.cohort)}</select></div>
     <div class="field"><label>Owner</label><select class="in" id="e_owner">${ownerOptions(m.responsible_person)}</select></div>
-    <div class="field"><label>Status</label><select class="in" id="e_status">${['alive','sacrificed','transferred','dead','unknown'].map(s=>`<option${(m.status||'alive')===s?' selected':''}>${s}</option>`).join('')}</select></div>
+    <div class="field"><label>Status</label><select class="in" id="e_status">${STATUSES.map(s=>`<option${(m.status||'healthy')===s?' selected':''}>${s}</option>`).join('')}</select></div>
     <div class="field"><label>Date of death</label><input class="in" id="e_dod" type="date" value="${esc(m.date_of_death||'')}"></div>
   </div>
   <div class="section-h">Location</div>
@@ -670,6 +677,7 @@ function fieldsHtml(m){
     <div class="field"><label># cages</label><input class="in" id="e_ncages" type="number" value="${esc(m.n_cages!=null?m.n_cages:'')}"></div>
   </div>
   <div class="field"><label>Genotype (free text)</label><input class="in" id="e_geno" value="${esc(m.genotype_label||'')}" placeholder="e.g. APPswe/PS1dE9 het"></div>
+  <div class="field"><label>Experiments (comma-separated)</label><input class="in" id="e_exp" value="${esc(m.experiments||'')}" placeholder="e.g. T-maze, Social, HCM">${expChips('e_exp')}</div>
   <div class="field"><label>Strain background</label><input class="in" id="e_strain" value="${esc(m.strain_background||'')}"></div>
   <div class="field"><label>Notes</label><textarea class="in" id="e_notes" rows="2">${esc(m.notes||'')}</textarea></div>`;
 }
@@ -679,7 +687,7 @@ function readFields(){
     status:$('e_status').value,responsible_person:g('e_owner'),
     facility:g('e_fac'),room:g('e_room'),rack:g('e_rack'),rack_row:g('e_row'),rack_col:g('e_col'),
     n_cages:g('e_ncages')?+g('e_ncages'):null, dob_estimated:$('e_dobest').value==='1',
-    strain_background:g('e_strain'),genotype_label:g('e_geno'),notes:g('e_notes')};
+    strain_background:g('e_strain'),genotype_label:g('e_geno'),experiments:g('e_exp'),notes:g('e_notes')};
   o.current_location=buildLoc(o)||null;
   return o;
 }
@@ -763,6 +771,8 @@ function renderCohortForm(){
       <div class="field"><label>Unknown-sex #s</label><textarea class="in" id="c_nums_u" rows="2" placeholder="blank = pending"></textarea></div>
     </div>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" id="c_eartag" checked> If any numbers are pending, file an ear-tag request for this cohort</label>
+    <div class="section-h">Experiments</div>
+    <div class="field"><label>Experiments this cohort has been through (comma-separated)</label><input class="in" id="c_exp" placeholder="e.g. T-maze, Social, HCM">${expChips('c_exp')}</div>
     <div class="field" style="margin-top:8px"><label>Notes</label><input class="in" id="c_notes"></div>`;
   $('c_agebasis').onchange=()=>{ const v=$('c_agebasis').value;
     $('c_dobwrap').classList.toggle('hidden',v!=='dob'); $('c_agewrap').classList.toggle('hidden',v!=='age'); };
@@ -787,7 +797,7 @@ $('addSave').onclick=async()=>{
   const current_location=buildLoc(loc)||null;
   const batch_id=crypto.randomUUID();
   const today=todayStr();
-  const geno=g('c_geno'), notes=g('c_notes');
+  const geno=g('c_geno'), notes=g('c_notes'), exp=g('c_exp');
   // parse numbers PER SEX so each tag lands on a mouse of the right sex
   function pnum(boxId,count,label){ const raw=g(boxId); if(!raw) return new Array(count).fill(null);
     const arr=parseNums(raw);
@@ -801,7 +811,7 @@ $('addSave').onclick=async()=>{
   const assigned=[].concat(mN,fN,uN).filter(Boolean);
   const dupAll=assigned.find((n,i)=>assigned.indexOf(n)!==i); if(dupAll){ $('addErr').textContent=`Number ${dupAll} is used more than once across sexes.`; return; }
   const common={cohort, genotype_label:geno, dob, dob_estimated:dobEst, responsible_person:owner, current_location,
-    status:'alive', batch_id, notes, created_by:USER.id, updated_by:USER.id, last_verified:today};
+    status:'healthy', experiments:exp, batch_id, notes, created_by:USER.id, updated_by:USER.id, last_verified:today};
   const rows=[];
   [['M',mN],['F',fN],['U',uN]].forEach(pair=>pair[1].forEach(num=>rows.push(Object.assign({tag_id:num||null, sex:pair[0]}, common, loc))));
   const pending=rows.filter(r=>!r.tag_id).length;
@@ -831,7 +841,7 @@ async function renderMine(){
   if(!where){ $('mineList').innerHTML='<div class="empty">Log in to see your colony.</div>'; return; }
   $('mineList').innerHTML='<div class="sub" style="color:var(--muted)">Loading…</div>';
   try{
-    const r=await api(`mouse_v?${where}&select=id,tag_id,sex,cohort,genotype_label,dob,dob_estimated,age_months,status,current_location,facility,room,rack,rack_row,rack_col,n_cages,owner_name,batch_id,created_at&order=created_at.desc`);
+    const r=await api(`mouse_v?${where}&select=id,tag_id,sex,cohort,genotype_label,dob,dob_estimated,age_months,status,current_location,facility,room,rack,rack_row,rack_col,n_cages,owner_name,experiments,batch_id,created_at&order=created_at.desc`);
     const rows=r.data||[];
     $('mineHdr').textContent = rows.length?('· '+rows.length+' mice'):'';
     if(!rows.length){ $('mineList').innerHTML='<div class="empty">No mice yet. Add one in the “＋ Add cohort” tab.</div>'; return; }
@@ -844,12 +854,15 @@ async function renderMine(){
       const owners=[...new Set(ms.map(m=>m.owner_name).filter(Boolean))];
       const locs=[...new Set(ms.map(m=>m.current_location).filter(Boolean))];
       const pend=ms.filter(m=>!m.tag_id).length;
+      const exps=[...new Set(ms.flatMap(m=>(m.experiments||'').split(',').map(s=>s.trim()).filter(Boolean)))];
+      const stat=[...new Set(ms.map(m=>m.status))];
       html+=`<div class="card" style="margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
           <div>
             <div style="font-size:15px;font-weight:600"><span class="cohort">${esc(g.cohort||'—')}</span> · ${esc(g.genotype_label||'—')}</div>
             <div class="sub" style="color:var(--muted);font-size:12px;margin-top:2px"><b>${ms.length}</b> mice (${esc(sexes)}) · ${g.age_months!=null?(g.dob_estimated?'~':'')+g.age_months+' mo':'age —'} · ${esc(owners.length>1?'owners: mixed':(owners[0]||'—'))}${pend?` · <span style="color:var(--amber)">${pend} pending #</span>`:''}</div>
-            <div class="sub" style="color:var(--muted);font-size:12px">📍 ${esc(locs.length>1?'mixed locations':(locs[0]||'—'))} · <span class="badge b-${esc(g.status)}">${esc(g.status)}</span> · added ${esc((g.created_at||'').slice(0,10))}</div>
+            <div class="sub" style="color:var(--muted);font-size:12px">📍 ${esc(locs.length>1?'mixed locations':(locs[0]||'—'))} · ${stat.map(s=>`<span class="badge b-${esc(s)}">${esc(s)}</span>`).join(' ')} · added ${esc((g.created_at||'').slice(0,10))}</div>
+            ${exps.length?`<div class="sub" style="color:var(--muted);font-size:12px;margin-top:2px">🧪 ${esc(exps.join(', '))}</div>`:''}
           </div>
           <div style="display:flex;gap:6px">
             <button class="btn p sm" onclick="__cohort.open(${gi})">Modify</button>
@@ -873,7 +886,7 @@ window.__cohort={
       <div class="grid2">
         <div class="field"><label>Cohort / genotype</label><select class="in" id="cm_cohort"><option value="">(unchanged)</option>${COHORTS.map(c=>`<option>${esc(c)}</option>`).join('')}</select></div>
         <div class="field"><label>Owner</label><select class="in" id="cm_owner"><option value="">(unchanged)</option>${USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('')}</select></div>
-        <div class="field"><label>Status</label><select class="in" id="cm_status"><option value="">(unchanged)</option>${['alive','sacrificed','transferred','dead','unknown'].map(s=>`<option>${s}</option>`).join('')}</select></div>
+        <div class="field"><label>Status</label><select class="in" id="cm_status"><option value="">(unchanged)</option>${STATUSES.map(s=>`<option>${s}</option>`).join('')}</select></div>
         <div class="field"><label>Genotype detail</label><input class="in" id="cm_geno" placeholder="(unchanged)"></div>
       </div>
       <div class="section-h">DOB (optional)</div>
@@ -889,13 +902,21 @@ window.__cohort={
         <div class="field"><label>Row</label><input class="in" id="cm_row"></div>
         <div class="field"><label>Col</label><input class="in" id="cm_col"></div>
       </div>
-      <div class="modal-actions"><button class="btn sm" onclick="__cohort.close()">Cancel</button><button class="btn p" onclick="__cohort.save(${gi})">Apply to ${ms.length} mice</button></div>
+      <div class="section-h">Add experiments (accumulates — blank keeps existing)</div>
+      <div class="field"><input class="in" id="cm_exp" placeholder="e.g. HCM, Social">${expChips('cm_exp')}</div>
+      <details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px;color:var(--accent)">Edit individual mouse numbers (${ms.length})</summary>
+        <div style="max-height:220px;overflow:auto;margin-top:8px">${ms.map(m=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:5px">
+          <span style="width:78px;color:var(--muted);font-size:12px">${esc(m.sex||'?')}${m.dob_estimated?' ~':''}</span>
+          <input class="in cm_num" data-id="${esc(m.id)}" data-orig="${esc(m.tag_id||'')}" value="${esc(m.tag_id||'')}" placeholder="(pending)" style="max-width:150px"></div>`).join('')}</div>
+      </details>
+      <div class="modal-actions"><button class="btn sm" onclick="__cohort.close()">Cancel</button><button class="btn p" onclick="__cohort.save(${gi})">Apply</button></div>
       <div class="err" id="cm_err"></div>`;
     $('cohortOverlay').classList.add('open'); },
   close:()=>$('cohortOverlay').classList.remove('open'),
   save:async(gi)=>{ const ms=MINE_GROUPS[gi]; if(!ms)return; const ids=ms.map(m=>m.id), g=ms[0];
     const v=id=>{const el=$(id);return el?el.value.trim():'';};
-    const patch={updated_by:USER.id,updated_at:new Date().toISOString()};
+    const stamp={updated_by:USER.id,updated_at:new Date().toISOString()};
+    const patch=Object.assign({},stamp);
     if(v('cm_cohort')) patch.cohort=v('cm_cohort');
     if(v('cm_owner')) patch.responsible_person=v('cm_owner');
     if(v('cm_status')) patch.status=v('cm_status');
@@ -903,14 +924,26 @@ window.__cohort={
     if(v('cm_dob')) patch.dob=v('cm_dob');
     if(v('cm_dobest')) patch.dob_estimated=v('cm_dobest')==='1';
     const fac=v('cm_fac'),room=v('cm_room'),rack=v('cm_rack'),row=v('cm_row'),col=v('cm_col');
-    if(fac||room||rack||row||col){
-      const loc={facility:fac||g.facility,room:room||g.room,rack:rack||g.rack,rack_row:row||g.rack_row,rack_col:col||g.rack_col};
-      Object.assign(patch,{facility:loc.facility,room:loc.room,rack:loc.rack,rack_row:loc.rack_row,rack_col:loc.rack_col,current_location:buildLoc(loc)||null});
-    }
-    if(Object.keys(patch).length<=2){ $('cm_err').textContent='Change at least one field.'; return; }
-    try{ const done=await inChunks(ids,'PATCH',{Prefer:'return=representation'},patch);
-      await audit('mice',null,'COHORT_MODIFY',{batch_id:g.batch_id,count:done.length},patch);
-      toast(`Updated ${done.length} mice`); __cohort.close(); renderMine(); loadColony();
+    if(fac||room||rack||row||col){ const loc={facility:fac||g.facility,room:room||g.room,rack:rack||g.rack,rack_row:row||g.rack_row,rack_col:col||g.rack_col};
+      Object.assign(patch,{facility:loc.facility,room:loc.room,rack:loc.rack,rack_row:loc.rack_row,rack_col:loc.rack_col,current_location:buildLoc(loc)||null}); }
+    const uniformChanged=Object.keys(patch).length>2;
+    const numEdits=[...$('cohortModal').querySelectorAll('.cm_num')].filter(el=>el.value.trim()!==el.dataset.orig).map(el=>({id:el.dataset.id, tag:el.value.trim()||null}));
+    const addExp=v('cm_exp'); const newTags=addExp?addExp.split(',').map(s=>s.trim()).filter(Boolean):[];
+    if(!uniformChanged && !numEdits.length && !newTags.length){ $('cm_err').textContent='Change at least one field.'; return; }
+    // reject a mouse number used twice within the cohort after the edits
+    const finalTags=ms.map(m=>{ const e=numEdits.find(x=>x.id===m.id); return e?e.tag:(m.tag_id||null); }).filter(Boolean);
+    const dupTag=finalTags.find((t,i)=>finalTags.indexOf(t)!==i);
+    if(dupTag){ $('cm_err').textContent=`Number ${dupTag} would be used more than once in this cohort.`; return; }
+    try{
+      if(uniformChanged){ const done=await inChunks(ids,'PATCH',{Prefer:'return=representation'},patch);
+        await audit('mice',null,'COHORT_MODIFY',{batch_id:g.batch_id,count:done.length},patch); }
+      if(newTags.length){ const byExp=new Map(); ms.forEach(m=>{ const cur=m.experiments||''; if(!byExp.has(cur))byExp.set(cur,[]); byExp.get(cur).push(m.id); });
+        for(const pair of byExp){ const merged=[...new Set(pair[0].split(',').map(s=>s.trim()).filter(Boolean).concat(newTags))].join(', ');
+          await inChunks(pair[1],'PATCH',{Prefer:'return=minimal'},Object.assign({experiments:merged},stamp)); }
+        await audit('mice',null,'COHORT_ADD_EXPERIMENTS',{batch_id:g.batch_id,added:newTags.join(', '),count:ids.length},null); }
+      if(numEdits.length){ for(const e of numEdits){ await api(`mice?id=eq.${e.id}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:Object.assign({tag_id:e.tag},stamp)}); }
+        await audit('mice',null,'COHORT_RENUMBER',{batch_id:g.batch_id,count:numEdits.length},null); }
+      toast('Cohort updated'); __cohort.close(); renderMine(); loadColony();
     }catch(e){ $('cm_err').textContent=e.message; } },
   del:async(gi)=>{ const ms=MINE_GROUPS[gi]; if(!ms)return; const ids=ms.map(m=>m.id);
     if(!confirm(`Delete this whole cohort — ${ids.length} mice (${ms[0].cohort} ${ms[0].genotype_label||''})? This can't be undone.`))return;

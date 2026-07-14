@@ -44,10 +44,11 @@ create table if not exists mice (
   rack_col text,                   -- e.g. "A" or "A-C"
   n_cages int,                     -- # cages the cohort occupies (informational)
   batch_id uuid,                   -- groups mice added together as one cohort
-  status text not null default 'alive'
-    check (status in ('alive','sacrificed','transferred','dead','unknown')),
+  status text not null default 'healthy'
+    check (status in ('healthy','diseased','sacrificed','dead','transferred','unknown')),
   responsible_person uuid references app_users(id),
   current_location text,
+  experiments text,                -- comma-separated experiment tags (T-maze, Social, HCM, …)
   last_verified date,
   notes text,
   created_by uuid references app_users(id),
