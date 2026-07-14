@@ -164,9 +164,9 @@
   <!-- COLONY -->
   <div class="wrap" id="tab-colony">
     <div class="filters">
-      <div class="f grow"><label>Search (mouse # / genotype)</label><input class="in" id="fSearch" placeholder="e.g. 4471 or APPswe"></div>
+      <div class="f grow"><label>Search (mouse # / strain)</label><input class="in" id="fSearch" placeholder="e.g. 4471 or hMAP"></div>
       <div class="f"><label>Sex</label><select class="in" id="fSex"><option value="">any</option><option>M</option><option>F</option><option>U</option></select></div>
-      <div class="f"><label>Cohort</label><select class="in" id="fCohort"><option value="">any</option></select></div>
+      <div class="f"><label>Genotype</label><select class="in" id="fCohort"><option value="">any</option></select></div>
       <div class="f"><label>Facility</label><select class="in" id="fFac"><option value="">any</option></select></div>
       <div class="f"><label>Status</label><select class="in" id="fStatus"><option value="healthy">healthy</option><option value="">any</option><option>diseased</option><option>sacrificed</option><option>dead</option><option>transferred</option><option>unknown</option></select></div>
       <div class="f"><label>Age ≥ (mo)</label><input class="in" id="fAgeMin" type="number" step="0.1" placeholder="min"></div>
@@ -185,7 +185,7 @@
       <button class="btn sm" id="batchAll">Select all</button>
       <span class="batch-sep"></span>
       <label style="font-size:12px">Set</label>
-      <select class="in" id="batchField"><option value="cohort">Cohort</option><option value="genotype_label">Genotype</option><option value="responsible_person">Owner</option><option value="status">Status</option></select>
+      <select class="in" id="batchField"><option value="cohort">Genotype</option><option value="genotype_label">Strain</option><option value="responsible_person">Owner</option><option value="status">Status</option></select>
       <span id="batchValWrap"></span>
       <button class="btn p sm" id="batchApply">Apply</button>
       <span class="batch-sep"></span>
@@ -440,8 +440,8 @@ function switchTab(name){
 
 // ---------- colony table ----------
 const COLS=[
-  {k:'tag_id',label:'Mouse #'},{k:'sex',label:'Sex'},{k:'cohort',label:'Cohort'},
-  {k:'genotype_label',label:'Genotype'},{k:'age_months',label:'Age (mo)'},
+  {k:'tag_id',label:'Mouse #'},{k:'sex',label:'Sex'},{k:'cohort',label:'Genotype'},
+  {k:'genotype_label',label:'Strain'},{k:'age_months',label:'Age (mo)'},
   {k:'current_location',label:'Location'},{k:'owner_name',label:'Owner'},{k:'status',label:'Status'},
 ];
 const STATUSES=['healthy','diseased','sacrificed','dead','transferred','unknown'];
@@ -454,7 +454,7 @@ let sortKey='age_months', sortDir='asc', page=0, pageSize=50, total=0;
 let SEL=new Set(); // selected mouse ids for batch actions (persists across pages/filters until cleared)
 let viewMode='ind'; // 'ind' = one row per mouse, 'grp' = collapsed by genotype·sex·age·status
 let grpSortKey='', grpSortDir='asc', GRP_ROWS=[]; // grouped-view sort (client-side over the fetched rows)
-const GCOLS=[{k:'cohort',label:'Cohort'},{k:'genotype_label',label:'Genotype'},{k:'sex',label:'Sex'},{k:'age_months',label:'Age (mo)'},{k:'count',label:'Count'},{k:'owner',label:'Owner'},{k:'location',label:'Location'},{k:'status',label:'Status'}];
+const GCOLS=[{k:'cohort',label:'Genotype'},{k:'genotype_label',label:'Strain'},{k:'sex',label:'Sex'},{k:'age_months',label:'Age (mo)'},{k:'count',label:'Count'},{k:'owner',label:'Owner'},{k:'location',label:'Location'},{k:'status',label:'Status'}];
 function cmpVal(a,b,dir){ if(a==null&&b==null)return 0; if(a==null)return 1; if(b==null)return -1; // nulls last
   const r=(typeof a==='number'&&typeof b==='number')?a-b:String(a).localeCompare(String(b)); return dir==='desc'?-r:r; }
 function grpVal(grp,k){ const ms=grp.ms, g=grp.g;
@@ -674,17 +674,16 @@ function renderDetail(m,em,pr){
     </div>
     <div class="grid3">
       <div class="kv"><span class="k">Sex</span><span>${esc(m.sex||'—')}</span></div>
-      <div class="kv"><span class="k">Cohort</span><span class="cohort">${esc(m.cohort||'—')}</span></div>
+      <div class="kv"><span class="k">Genotype</span><span class="cohort">${esc(m.cohort||'—')}</span></div>
       <div class="kv"><span class="k">Age</span><span>${m.age_months!=null?(m.dob_estimated?'~':'')+m.age_months+' mo ('+m.age_days+'d)'+(m.dob_estimated?' <span style="color:var(--amber);font-size:11px">est.</span>':''):'—'}</span></div>
       <div class="kv"><span class="k">DOB</span><span>${esc(m.dob||'—')}</span></div>
       <div class="kv"><span class="k">Owner</span><span>${esc(m.owner_name||'—')}</span></div>
       <div class="kv"><span class="k">Location</span><span>${esc(m.current_location||'—')}</span></div>
-      <div class="kv"><span class="k">Strain</span><span>${esc(m.strain_background||'—')}</span></div>
       <div class="kv"><span class="k">Verified</span><span>${esc(m.last_verified||'never')}</span></div>
       <div class="kv"><span class="k">Facility</span><span>${esc(m.facility||'—')}</span></div>
       <div class="kv"><span class="k">Cage</span><span>${esc(m.cage||'—')}</span></div>
+      <div class="kv"><span class="k">Strain</span><span>${esc(m.genotype_label||'—')}</span></div>
     </div>
-    <div class="kv"><span class="k">Genotype</span><span>${esc(m.genotype_label||'—')}</span></div>
     <div class="kv"><span class="k">Experiments</span><span>${esc(m.experiments||'—')}</span></div>
     ${m.notes?`<div class="kv"><span class="k">Notes</span><span>${esc(m.notes)}</span></div>`:''}
     <div class="section-h">Timeline</div>
@@ -703,7 +702,7 @@ function fieldsHtml(m){
     <div class="field"><label>Sex</label><select class="in" id="e_sex"><option value="">—</option>${['M','F','U'].map(s=>`<option${m.sex===s?' selected':''}>${s}</option>`).join('')}</select></div>
     <div class="field"><label>DOB ${m.dob_estimated?'<span style="color:var(--amber)">(est.)</span>':''}</label><input class="in" id="e_dob" type="date" value="${esc(m.dob||'')}"></div>
     <div class="field"><label>DOB estimated?</label><select class="in" id="e_dobest"><option value="">no</option><option value="1"${m.dob_estimated?' selected':''}>yes</option></select></div>
-    <div class="field"><label>Cohort / genotype</label><select class="in" id="e_cohort">${cohortOptions(m.cohort)}</select></div>
+    <div class="field"><label>Genotype</label><select class="in" id="e_cohort">${cohortOptions(m.cohort)}</select></div>
     <div class="field"><label>Owner</label><select class="in" id="e_owner">${ownerOptions(m.responsible_person)}</select></div>
     <div class="field"><label>Status</label><select class="in" id="e_status">${STATUSES.map(s=>`<option${(m.status||'healthy')===s?' selected':''}>${s}</option>`).join('')}</select></div>
     <div class="field"><label>Date of death</label><input class="in" id="e_dod" type="date" value="${esc(m.date_of_death||'')}"></div>
@@ -717,9 +716,8 @@ function fieldsHtml(m){
     <div class="field"><label>Row (legacy)</label><input class="in" id="e_row" value="${esc(m.rack_row||'')}"></div>
     <div class="field"><label>Col (legacy)</label><input class="in" id="e_col" value="${esc(m.rack_col||'')}"></div>
   </div>
-  <div class="field"><label>Genotype (free text)</label><input class="in" id="e_geno" value="${esc(m.genotype_label||'')}" placeholder="e.g. APPswe/PS1dE9 het"></div>
+  <div class="field"><label>Strain</label><input class="in" id="e_geno" value="${esc(m.genotype_label||'')}" placeholder="e.g. C57BL/6, hMAP"></div>
   <div class="field"><label>Experiments (comma-separated)</label><input class="in" id="e_exp" value="${esc(m.experiments||'')}" placeholder="e.g. T-maze, Social, HCM">${expChips('e_exp')}</div>
-  <div class="field"><label>Strain background</label><input class="in" id="e_strain" value="${esc(m.strain_background||'')}"></div>
   <div class="field"><label>Notes</label><textarea class="in" id="e_notes" rows="2">${esc(m.notes||'')}</textarea></div>`;
 }
 function readFields(){
@@ -728,7 +726,7 @@ function readFields(){
     status:$('e_status').value,responsible_person:g('e_owner'),
     facility:g('e_fac'),room:g('e_room'),rack:g('e_rack'),cage:g('e_cage'),rack_row:g('e_row'),rack_col:g('e_col'),
     dob_estimated:$('e_dobest').value==='1',
-    strain_background:g('e_strain'),genotype_label:g('e_geno'),experiments:g('e_exp'),notes:g('e_notes')};
+    genotype_label:g('e_geno'),experiments:g('e_exp'),notes:g('e_notes')};
   o.current_location=buildLoc(o)||null;
   return o;
 }
@@ -799,9 +797,9 @@ function renderCohortForm(){
   CAGES=[newCage()];
   $('cohortForm').innerHTML=`
     <div class="grid3">
-      <div class="field"><label>Cohort / genotype *</label><select class="in" id="c_cohort">${cohortOptions('')}</select></div>
+      <div class="field"><label>Genotype *</label><select class="in" id="c_cohort">${cohortOptions('')}</select></div>
       <div class="field"><label>Owner *</label><select class="in" id="c_owner">${ownerOptions('')}</select></div>
-      <div class="field"><label>Genotype detail</label><input class="in" id="c_geno" placeholder="e.g. APPswe/PS1dE9 het"></div>
+      <div class="field"><label>Strain</label><input class="in" id="c_geno" placeholder="e.g. C57BL/6, hMAP"></div>
     </div>
     <div class="section-h">Age / DOB *</div>
     <div class="grid3">
@@ -833,7 +831,7 @@ $('addSave').onclick=async()=>{
   $('addErr').textContent='';
   const g=id=>{const el=$(id);return el?(el.value.trim()||null):null;};
   const cohort=g('c_cohort'), owner=g('c_owner');
-  if(!cohort){ $('addErr').textContent='Cohort / genotype is required.'; return; }
+  if(!cohort){ $('addErr').textContent='Genotype is required.'; return; }
   if(!owner){ $('addErr').textContent='Owner is required.'; return; }
   let dob=null, dobEst=false; const basis=$('c_agebasis').value;
   if(basis==='dob'){ dob=g('c_dob'); if(!dob){ $('addErr').textContent='Enter a DOB, or switch to “Estimate from age” / “Unknown (add later)”.'; return; } }
@@ -929,10 +927,10 @@ window.__cohort={
         <button class="btn sm" onclick="__cohort.close()">✕</button></div>
       <div class="sub" style="color:var(--muted);font-size:12px;margin:6px 0 12px">Only fields you change are applied — leave “(unchanged)”. Applies to all ${ms.length} mice.</div>
       <div class="grid2">
-        <div class="field"><label>Cohort / genotype</label><select class="in" id="cm_cohort"><option value="">(unchanged)</option>${COHORTS.map(c=>`<option>${esc(c)}</option>`).join('')}</select></div>
+        <div class="field"><label>Genotype</label><select class="in" id="cm_cohort"><option value="">(unchanged)</option>${COHORTS.map(c=>`<option>${esc(c)}</option>`).join('')}</select></div>
         <div class="field"><label>Owner</label><select class="in" id="cm_owner"><option value="">(unchanged)</option>${USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('')}</select></div>
         <div class="field"><label>Status</label><select class="in" id="cm_status"><option value="">(unchanged)</option>${STATUSES.map(s=>`<option>${s}</option>`).join('')}</select></div>
-        <div class="field"><label>Genotype detail</label><input class="in" id="cm_geno" placeholder="(unchanged)"></div>
+        <div class="field"><label>Strain</label><input class="in" id="cm_geno" placeholder="(unchanged) e.g. C57BL/6"></div>
       </div>
       <div class="section-h">DOB (optional)</div>
       <div class="grid2">
@@ -1013,7 +1011,7 @@ window.__cohort={
 $('cohortOverlay').addEventListener('mousedown',e=>{ if(e.target===$('cohortOverlay')) __cohort.close(); });
 
 // ---------- import (CSV / Excel) ----------
-const IMP_FIELDS=[['','— ignore —'],['tag_id','Mouse #'],['sex','Sex'],['cohort','Cohort'],['genotype_label','Genotype'],['dob','DOB (date)'],['age','Age (number)'],['status','Status'],['owner','Owner (name)'],['facility','Facility'],['room','Room'],['rack','Rack'],['cage','Cage'],['rack_row','Row'],['rack_col','Col'],['experiments','Experiments'],['strain_background','Strain'],['date_of_death','Date of death'],['notes','Notes']];
+const IMP_FIELDS=[['','— ignore —'],['tag_id','Mouse #'],['sex','Sex'],['cohort','Genotype'],['genotype_label','Strain'],['dob','DOB (date)'],['age','Age (number)'],['status','Status'],['owner','Owner (name)'],['facility','Facility'],['room','Room'],['rack','Rack'],['cage','Cage'],['rack_row','Row'],['rack_col','Col'],['experiments','Experiments'],['date_of_death','Date of death'],['notes','Notes']];
 let IMP={headers:[],data:[],map:[],file:''};
 function parseCSV(t){ const rows=[]; let row=[],cur='',q=false;
   for(let i=0;i<t.length;i++){ const c=t[i];
@@ -1023,11 +1021,11 @@ function parseCSV(t){ const rows=[]; let row=[],cur='',q=false;
   return rows;
 }
 function impGuess(h){ h=(h||'').toLowerCase().trim();
-  if(/geno/.test(h))return 'genotype_label';
+  if(/strain|background/.test(h))return 'genotype_label'; // "Strain" (C57/hMAP) is stored in genotype_label
   if(/cage/.test(h))return 'cage'; // before tag_id so "Cage Number" isn't caught by /number/
   if(/tag|mouse\s*#|mouse\s*no|mouse\s*num|ear|^id$|number|^#/.test(h))return 'tag_id';
   if(/^sex$|gender/.test(h))return 'sex';
-  if(/cohort|^line$/.test(h))return 'cohort';
+  if(/genotype|geno|cohort|^line$/.test(h))return 'cohort'; // "Genotype" (WT/Tau) is the cohort column
   if(/dob|birth/.test(h))return 'dob';
   if(/\bage\b/.test(h))return 'age';
   if(/status|health/.test(h))return 'status';
@@ -1038,7 +1036,6 @@ function impGuess(h){ h=(h||'').toLowerCase().trim();
   if(/\brow\b/.test(h))return 'rack_row';
   if(/\bcol/.test(h))return 'rack_col';
   if(/experiment|assay|paradigm/.test(h))return 'experiments';
-  if(/strain|background/.test(h))return 'strain_background';
   if(/death|sacrific|euth/.test(h))return 'date_of_death';
   if(/note|comment|remark/.test(h))return 'notes';
   return '';
@@ -1165,7 +1162,7 @@ async function impDoPreview(){
     <div class="section-h">Preview · ${built.length} mice${warnN?` · <span style="color:var(--amber)">${warnN} with warnings</span>`:''}</div>
     ${dupMap.length?`<div class="err">⚠ These fields are mapped to more than one column; only the first is used: ${esc(dupMap.join(', '))}.</div>`:''}
     ${allEmpty?`<div class="err">Nothing to import — no columns are mapped to real fields. Go back and map at least Mouse # / Sex / Genotype / DOB, or <button class="btn sm" onclick="__impHelp()">✉ email Leo for help</button></div>`:''}
-    <div class="tablewrap"><table><thead><tr><th>#</th><th>Sex</th><th>Cohort</th><th>Genotype</th><th>DOB</th><th>Owner</th><th>Status</th><th>Location</th><th>Warnings</th></tr></thead>
+    <div class="tablewrap"><table><thead><tr><th>#</th><th>Sex</th><th>Genotype</th><th>Strain</th><th>DOB</th><th>Owner</th><th>Status</th><th>Location</th><th>Warnings</th></tr></thead>
     <tbody>${show.map(b=>`<tr${b.warn.length?' style="background:rgba(251,191,36,.08)"':''}>
       <td>${esc(b.row.tag_id||'—')}</td><td>${esc(b.row.sex||'—')}</td><td class="cohort">${esc(b.row.cohort||'—')}</td>
       <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis">${esc(b.row.genotype_label||'—')}</td>
@@ -1268,7 +1265,7 @@ function openNewReq(){
     <div class="field"><label>Specific mouse # (optional — blank = request by criteria)</label><input class="in" id="q_mouse" placeholder="mouse number"></div>
     <div class="grid3">
       <div class="field"><label>Sex</label><select class="in" id="q_sex"><option value="">any</option><option>M</option><option>F</option></select></div>
-      <div class="field"><label>Cohort</label><select class="in" id="q_cohort">${cohortOptions('')}</select></div>
+      <div class="field"><label>Genotype</label><select class="in" id="q_cohort">${cohortOptions('')}</select></div>
       <div class="field"><label>Quantity</label><input class="in" id="q_qty" type="number" min="1" placeholder="1"></div>
       <div class="field"><label>Age ≥ (wk)</label><input class="in" id="q_agemin" type="number"></div>
       <div class="field"><label>Age ≤ (wk)</label><input class="in" id="q_agemax" type="number"></div>

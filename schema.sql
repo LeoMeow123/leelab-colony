@@ -35,9 +35,9 @@ create table if not exists mice (
   dob date,                        -- age is DERIVED from this, never stored
   dob_estimated boolean default false, -- true = dob was back-computed from a rough age
   date_of_death date,
-  cohort text,                     -- controlled vocab: WT/APP/Tau/PD/other
-  genotype_label text,             -- free-text detail + search cache
-  strain_background text,
+  cohort text,                     -- shown in the UI as "Genotype": controlled vocab WT/APP/Tau/PD/…
+  genotype_label text,             -- shown in the UI as "Strain": free text, e.g. C57BL/6, hMAP
+  strain_background text,           -- legacy/unused (the UI "Strain" field maps to genotype_label)
   room text,                       -- structured location (also flattened into current_location)
   rack text,
   rack_row text,                   -- single value or a range like "1-4" (legacy; superseded by cage)
