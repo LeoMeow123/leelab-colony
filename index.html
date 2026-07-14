@@ -147,6 +147,7 @@
     <h1>🐭 Lee Lab Colony <span class="em" id="mouseCountHdr"></span></h1>
     <div class="tabs">
       <button class="tab active" data-tab="colony">Colony</button>
+      <button class="tab" data-tab="mine">My colony</button>
       <button class="tab" data-tab="add">＋ Add cohort</button>
       <button class="tab" data-tab="requests">Requests</button>
       <button class="tab" data-tab="people">People</button>
@@ -193,6 +194,17 @@
       </table>
       <div class="pager"><span id="pageInfo"></span><button class="btn sm" id="prev">‹ Prev</button><button class="btn sm" id="next">Next ›</button></div>
     </div>
+  </div>
+
+  <!-- MY COLONY -->
+  <div class="wrap hidden" id="tab-mine">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+      <div><h1 style="font-size:17px;margin:0">My colony <span class="em" id="mineHdr"></span></h1>
+      <div class="sub" style="color:var(--muted);font-size:12px">The cohorts you added or own, grouped as you entered them. Click <b>Modify</b> to change a whole cohort at once.</div></div>
+      <div><label style="font-size:12px;color:var(--muted)">Show</label>
+        <select class="in" id="mineScope" style="width:auto;display:inline-block"><option value="both">Added or owned by me</option><option value="owner">Owned by me</option><option value="creator">Added by me</option></select></div>
+    </div>
+    <div id="mineList"></div>
   </div>
 
   <!-- ADD -->
@@ -253,6 +265,11 @@
 <!-- REQUEST MODAL -->
 <div class="overlay" id="reqOverlay">
   <div class="modal" id="reqModal"></div>
+</div>
+
+<!-- COHORT BATCH-MODIFY MODAL -->
+<div class="overlay" id="cohortOverlay">
+  <div class="modal" id="cohortModal"></div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -371,9 +388,10 @@ $('logout').onclick=()=>{ localStorage.removeItem('mc:user'); USER=null; showLog
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>switchTab(t.dataset.tab));
 function switchTab(name){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
-  ['colony','add','people','requests'].forEach(n=>$('tab-'+n).classList.toggle('hidden',n!==name));
+  ['colony','mine','add','people','requests'].forEach(n=>$('tab-'+n).classList.toggle('hidden',n!==name));
   if(name==='people') renderPeople();
   if(name==='requests') renderRequests();
+  if(name==='mine') renderMine();
 }
 
 // ---------- colony table ----------
@@ -769,6 +787,109 @@ $('addSave').onclick=async()=>{
     toast(`Added ${total} mice`+extra); renderCohortForm(); switchTab('colony'); page=0; loadColony();
   }catch(e){ $('addErr').textContent=e.message; }
 };
+
+// ---------- my colony (cohorts I added / own) ----------
+let MINE_GROUPS={};
+function mineWhere(){ const me=USER&&USER.id; if(!me) return null;
+  const s=$('mineScope')?$('mineScope').value:'both';
+  if(s==='owner') return 'responsible_person=eq.'+me;
+  if(s==='creator') return 'created_by=eq.'+me;
+  return `or=(responsible_person.eq.${me},created_by.eq.${me})`; }
+async function renderMine(){
+  const where=mineWhere();
+  if(!where){ $('mineList').innerHTML='<div class="empty">Log in to see your colony.</div>'; return; }
+  $('mineList').innerHTML='<div class="sub" style="color:var(--muted)">Loading…</div>';
+  try{
+    const r=await api(`mouse_v?${where}&select=id,tag_id,sex,cohort,genotype_label,dob,dob_estimated,age_months,status,current_location,facility,room,rack,rack_row,rack_col,n_cages,owner_name,batch_id,created_at&order=created_at.desc`);
+    const rows=r.data||[];
+    $('mineHdr').textContent = rows.length?('· '+rows.length+' mice'):'';
+    if(!rows.length){ $('mineList').innerHTML='<div class="empty">No mice yet. Add one in the “＋ Add cohort” tab.</div>'; return; }
+    const groups=new Map();
+    rows.forEach(m=>{ const k=m.batch_id||('nb¦'+m.cohort+'¦'+m.genotype_label+'¦'+m.dob); if(!groups.has(k))groups.set(k,[]); groups.get(k).push(m); });
+    MINE_GROUPS={}; let html='', gi=0;
+    for(const ms of groups.values()){
+      MINE_GROUPS[gi]=ms; const g=ms[0];
+      const sexes=['M','F','U'].map(s=>{const c=ms.filter(m=>m.sex===s).length;return c?c+s:null;}).filter(Boolean).join(' · ')||'—';
+      const owners=[...new Set(ms.map(m=>m.owner_name).filter(Boolean))];
+      const locs=[...new Set(ms.map(m=>m.current_location).filter(Boolean))];
+      const pend=ms.filter(m=>!m.tag_id).length;
+      html+=`<div class="card" style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:15px;font-weight:600"><span class="cohort">${esc(g.cohort||'—')}</span> · ${esc(g.genotype_label||'—')}</div>
+            <div class="sub" style="color:var(--muted);font-size:12px;margin-top:2px"><b>${ms.length}</b> mice (${esc(sexes)}) · ${g.age_months!=null?(g.dob_estimated?'~':'')+g.age_months+' mo':'age —'} · ${esc(owners.length>1?'owners: mixed':(owners[0]||'—'))}${pend?` · <span style="color:var(--amber)">${pend} pending #</span>`:''}</div>
+            <div class="sub" style="color:var(--muted);font-size:12px">📍 ${esc(locs.length>1?'mixed locations':(locs[0]||'—'))} · <span class="badge b-${esc(g.status)}">${esc(g.status)}</span> · added ${esc((g.created_at||'').slice(0,10))}</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn p sm" onclick="__cohort.open(${gi})">Modify</button>
+            <button class="btn r sm" onclick="__cohort.del(${gi})">Delete</button>
+          </div>
+        </div>
+      </div>`;
+      gi++;
+    }
+    $('mineList').innerHTML=html;
+  }catch(e){ $('mineList').innerHTML=`<div class="empty">Error: ${esc(e.message)}</div>`; }
+}
+if($('mineScope')) $('mineScope').onchange=renderMine;
+window.__cohort={
+  open:(gi)=>{ const ms=MINE_GROUPS[gi]; if(!ms)return; const g=ms[0];
+    $('cohortModal').innerHTML=`
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div><h2 style="margin:0">Modify cohort</h2><div class="mid">${ms.length} mice · ${esc(g.cohort||'')} ${esc(g.genotype_label||'')}</div></div>
+        <button class="btn sm" onclick="__cohort.close()">✕</button></div>
+      <div class="sub" style="color:var(--muted);font-size:12px;margin:6px 0 12px">Only fields you change are applied — leave “(unchanged)”. Applies to all ${ms.length} mice.</div>
+      <div class="grid2">
+        <div class="field"><label>Cohort / genotype</label><select class="in" id="cm_cohort"><option value="">(unchanged)</option>${COHORTS.map(c=>`<option>${esc(c)}</option>`).join('')}</select></div>
+        <div class="field"><label>Owner</label><select class="in" id="cm_owner"><option value="">(unchanged)</option>${USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('')}</select></div>
+        <div class="field"><label>Status</label><select class="in" id="cm_status"><option value="">(unchanged)</option>${['alive','sacrificed','transferred','dead','unknown'].map(s=>`<option>${s}</option>`).join('')}</select></div>
+        <div class="field"><label>Genotype detail</label><input class="in" id="cm_geno" placeholder="(unchanged)"></div>
+      </div>
+      <div class="section-h">DOB (optional)</div>
+      <div class="grid2">
+        <div class="field"><label>DOB</label><input class="in" id="cm_dob" type="date"></div>
+        <div class="field"><label>DOB estimated?</label><select class="in" id="cm_dobest"><option value="">(unchanged)</option><option value="1">yes</option><option value="0">no</option></select></div>
+      </div>
+      <div class="section-h">Move location (optional — fill any part to move the whole cohort)</div>
+      <div class="grid3">
+        <div class="field"><label>Facility</label><select class="in" id="cm_fac"><option value="">(unchanged)</option>${FACILITIES.map(f=>`<option>${esc(f)}</option>`).join('')}</select></div>
+        <div class="field"><label>Room</label><input class="in" id="cm_room"></div>
+        <div class="field"><label>Rack</label><input class="in" id="cm_rack"></div>
+        <div class="field"><label>Row</label><input class="in" id="cm_row"></div>
+        <div class="field"><label>Col</label><input class="in" id="cm_col"></div>
+      </div>
+      <div class="modal-actions"><button class="btn sm" onclick="__cohort.close()">Cancel</button><button class="btn p" onclick="__cohort.save(${gi})">Apply to ${ms.length} mice</button></div>
+      <div class="err" id="cm_err"></div>`;
+    $('cohortOverlay').classList.add('open'); },
+  close:()=>$('cohortOverlay').classList.remove('open'),
+  save:async(gi)=>{ const ms=MINE_GROUPS[gi]; if(!ms)return; const ids=ms.map(m=>m.id), g=ms[0];
+    const v=id=>{const el=$(id);return el?el.value.trim():'';};
+    const patch={updated_by:USER.id,updated_at:new Date().toISOString()};
+    if(v('cm_cohort')) patch.cohort=v('cm_cohort');
+    if(v('cm_owner')) patch.responsible_person=v('cm_owner');
+    if(v('cm_status')) patch.status=v('cm_status');
+    if(v('cm_geno')) patch.genotype_label=v('cm_geno');
+    if(v('cm_dob')) patch.dob=v('cm_dob');
+    if(v('cm_dobest')) patch.dob_estimated=v('cm_dobest')==='1';
+    const fac=v('cm_fac'),room=v('cm_room'),rack=v('cm_rack'),row=v('cm_row'),col=v('cm_col');
+    if(fac||room||rack||row||col){
+      const loc={facility:fac||g.facility,room:room||g.room,rack:rack||g.rack,rack_row:row||g.rack_row,rack_col:col||g.rack_col};
+      Object.assign(patch,{facility:loc.facility,room:loc.room,rack:loc.rack,rack_row:loc.rack_row,rack_col:loc.rack_col,current_location:buildLoc(loc)||null});
+    }
+    if(Object.keys(patch).length<=2){ $('cm_err').textContent='Change at least one field.'; return; }
+    try{ const done=await inChunks(ids,'PATCH',{Prefer:'return=representation'},patch);
+      await audit('mice',null,'COHORT_MODIFY',{batch_id:g.batch_id,count:done.length},patch);
+      toast(`Updated ${done.length} mice`); __cohort.close(); renderMine(); loadColony();
+    }catch(e){ $('cm_err').textContent=e.message; } },
+  del:async(gi)=>{ const ms=MINE_GROUPS[gi]; if(!ms)return; const ids=ms.map(m=>m.id);
+    if(!confirm(`Delete this whole cohort — ${ids.length} mice (${ms[0].cohort} ${ms[0].genotype_label||''})? This can't be undone.`))return;
+    try{ const done=await inChunks(ids,'DELETE',{Prefer:'return=representation'});
+      if(!done.length){ toast('Delete blocked by DB — run migration_002.sql'); return; }
+      await audit('mice',null,'DELETE_COHORT',{batch_id:ms[0].batch_id,count:done.length},null);
+      toast(`Deleted ${done.length} mice`); renderMine(); loadColony();
+    }catch(e){ toast('Delete failed: '+e.message); } }
+};
+$('cohortOverlay').addEventListener('mousedown',e=>{ if(e.target===$('cohortOverlay')) __cohort.close(); });
 
 // ---------- people ----------
 async function renderPeople(){
