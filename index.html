@@ -56,6 +56,13 @@
   .filters .f.grow{flex:1;min-width:180px}
   .filters .f label{margin-bottom:2px}
   .filters .in{padding:6px 8px}
+  #fMine.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  /* batch action bar */
+  .batchbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--bg2);border:1px solid var(--accent);border-radius:12px;padding:8px 12px;margin-bottom:12px;box-shadow:var(--shadow)}
+  .batchbar .in{padding:6px 8px}
+  .batchbar b{font-size:13px}
+  .batch-sep{width:1px;height:22px;background:var(--border)}
+  td.selcol,th.selcol{width:30px;text-align:center}
 
   /* table */
   .tablewrap{overflow-x:auto;border:1px solid var(--border);border-radius:12px;background:var(--bg2);box-shadow:var(--shadow)}
@@ -151,7 +158,20 @@
       <div class="f"><label>Age ≤ (mo)</label><input class="in" id="fAgeMax" type="number" step="0.1" placeholder="max"></div>
       <div class="f"><label>Owner</label><select class="in" id="fOwner"><option value="">any</option></select></div>
       <div class="f"><label>Location</label><input class="in" id="fLoc" placeholder="room / rack"></div>
-      <div class="f"><button class="btn r sm" id="fClear" title="Clear filters">clear</button> <button class="btn g sm" id="exportCsv">CSV</button></div>
+      <div class="f"><button class="btn sm" id="fMine" title="Show only mice you own">Mine</button> <button class="btn r sm" id="fClear" title="Clear filters">clear</button> <button class="btn g sm" id="exportCsv">CSV</button></div>
+    </div>
+    <div class="batchbar hidden" id="batchBar">
+      <b id="batchCount">0 selected</b>
+      <button class="btn sm" id="batchAll">Select all</button>
+      <span class="batch-sep"></span>
+      <label style="font-size:12px">Set</label>
+      <select class="in" id="batchField"><option value="cohort">Cohort</option><option value="responsible_person">Owner</option><option value="status">Status</option></select>
+      <select class="in" id="batchValue"></select>
+      <button class="btn p sm" id="batchApply">Apply</button>
+      <span class="batch-sep"></span>
+      <button class="btn g sm" id="batchVerify">✓ Verify today</button>
+      <button class="btn r sm" id="batchDelete">Delete</button>
+      <button class="btn sm" id="batchClear">Clear selection</button>
     </div>
     <div class="tablewrap">
       <table>
@@ -350,6 +370,7 @@ const COLS=[
   {k:'current_location',label:'Location'},{k:'owner_name',label:'Owner'},{k:'status',label:'Status'},
 ];
 let sortKey='age_months', sortDir='asc', page=0, pageSize=50, total=0;
+let SEL=new Set(); // selected mouse ids for batch actions (persists across pages/filters until cleared)
 
 function buildQuery(forExport){
   const p=[];
@@ -378,15 +399,18 @@ async function loadColony(){
     const from=total?page*pageSize+1:0, to=Math.min(total,(page+1)*pageSize);
     $('pageInfo').textContent=`${from}–${to} of ${total.toLocaleString()}`;
     $('prev').disabled=page<=0; $('next').disabled=(page+1)*pageSize>=total;
-  }catch(e){ $('tbody').innerHTML=`<tr><td colspan="8" class="empty">Error: ${esc(e.message)}<br><span style="font-size:12px">Did you run schema.sql and add people?</span></td></tr>`; }
+  }catch(e){ $('tbody').innerHTML=`<tr><td colspan="9" class="empty">Error: ${esc(e.message)}<br><span style="font-size:12px">Did you run schema.sql and add people?</span></td></tr>`; }
 }
 function renderHead(){
-  $('thead').innerHTML=COLS.map(c=>`<th data-k="${c.k}">${c.label}${sortKey===c.k?` <span class="ar">${sortDir==='asc'?'▲':'▼'}</span>`:''}</th>`).join('');
-  $('thead').querySelectorAll('th').forEach(th=>th.onclick=()=>{ const k=th.dataset.k; if(sortKey===k)sortDir=sortDir==='asc'?'desc':'asc'; else{sortKey=k;sortDir='asc';} page=0; loadColony(); });
+  $('thead').innerHTML='<th class="selcol"><input type="checkbox" id="selAll" title="Select all on this page"></th>'+
+    COLS.map(c=>`<th data-k="${c.k}">${c.label}${sortKey===c.k?` <span class="ar">${sortDir==='asc'?'▲':'▼'}</span>`:''}</th>`).join('');
+  $('thead').querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{ const k=th.dataset.k; if(sortKey===k)sortDir=sortDir==='asc'?'desc':'asc'; else{sortKey=k;sortDir='asc';} page=0; loadColony(); });
+  const sa=$('selAll'); if(sa) sa.onchange=()=>toggleAllOnPage(sa.checked);
 }
 function renderRows(rows){
-  if(!rows.length){ $('tbody').innerHTML='<tr><td colspan="8" class="empty">No mice match. Add one, or adjust filters.</td></tr>'; return; }
+  if(!rows.length){ $('tbody').innerHTML='<tr><td colspan="9" class="empty">No mice match. Add one, or adjust filters.</td></tr>'; syncBatchBar(); return; }
   $('tbody').innerHTML=rows.map(m=>`<tr data-id="${m.id}">
+    <td class="selcol"><input type="checkbox" class="rowsel" data-id="${m.id}"${SEL.has(m.id)?' checked':''}></td>
     <td><b>${esc(m.tag_id||'—')}</b></td>
     <td>${esc(m.sex||'')}</td>
     <td class="cohort">${esc(m.cohort||'')}</td>
@@ -396,14 +420,47 @@ function renderRows(rows){
     <td>${esc(m.owner_name||'')}</td>
     <td><span class="badge b-${esc(m.status)}">${esc(m.status)}</span>${m.is_stale?'<span class="badge b-stale">stale</span>':''}</td>
   </tr>`).join('');
-  $('tbody').querySelectorAll('tr').forEach(tr=>tr.onclick=()=>openDetail(tr.dataset.id));
+  $('tbody').querySelectorAll('tr').forEach(tr=>tr.onclick=(e)=>{ if(e.target.classList.contains('rowsel'))return; openDetail(tr.dataset.id); });
+  $('tbody').querySelectorAll('.rowsel').forEach(cb=>cb.onchange=()=>{ if(cb.checked)SEL.add(cb.dataset.id); else SEL.delete(cb.dataset.id); syncSelAll(); syncBatchBar(); });
+  syncSelAll(); syncBatchBar();
 }
+function syncSelAll(){ const boxes=[...$('tbody').querySelectorAll('.rowsel')], sa=$('selAll'); if(sa) sa.checked=boxes.length>0&&boxes.every(b=>b.checked); }
+function toggleAllOnPage(on){ $('tbody').querySelectorAll('.rowsel').forEach(cb=>{ cb.checked=on; if(on)SEL.add(cb.dataset.id); else SEL.delete(cb.dataset.id); }); syncBatchBar(); }
+function syncBatchBar(){ const n=SEL.size; $('batchBar').classList.toggle('hidden',n===0); $('batchCount').textContent=n+' selected';
+  const more=total>n; $('batchAll').classList.toggle('hidden',!more); $('batchAll').textContent=`Select all ${total}`; }
+function fillBatchValue(){ const f=$('batchField').value; let o='';
+  if(f==='cohort') o=COHORTS.map(c=>`<option>${esc(c)}</option>`).join('');
+  else if(f==='responsible_person') o=USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
+  else o=['alive','sacrificed','transferred','dead','unknown'].map(s=>`<option>${s}</option>`).join('');
+  $('batchValue').innerHTML=o; }
 ['fSearch','fLoc'].forEach(id=>$(id).addEventListener('input',debounce(()=>{page=0;loadColony();},300)));
 ['fSex','fCohort','fFac','fStatus','fAgeMin','fAgeMax','fOwner'].forEach(id=>$(id).addEventListener('change',()=>{page=0;loadColony();}));
 $('fClear').onclick=()=>{['fSearch','fLoc','fAgeMin','fAgeMax'].forEach(i=>$(i).value='');['fSex','fCohort','fFac','fOwner'].forEach(i=>$(i).value='');$('fStatus').value='alive';page=0;loadColony();};
 $('prev').onclick=()=>{if(page>0){page--;loadColony();}};
 $('next').onclick=()=>{if((page+1)*pageSize<total){page++;loadColony();}};
 function debounce(fn,ms){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);};}
+
+// ---------- Mine toggle + batch actions ----------
+$('fMine').onclick=()=>{ if(!(USER&&USER.id))return;
+  const on=$('fOwner').value!==USER.id; $('fOwner').value=on?USER.id:''; $('fMine').classList.toggle('active',on); page=0; loadColony(); };
+$('batchField').onchange=fillBatchValue;
+$('batchClear').onclick=()=>{ SEL.clear(); $('tbody').querySelectorAll('.rowsel').forEach(cb=>cb.checked=false); syncSelAll(); syncBatchBar(); };
+$('batchAll').onclick=async()=>{ try{ const r=await api(buildQuery(true).replace(/select=[^&]*/,'select=id')); (r.data||[]).forEach(x=>SEL.add(x.id)); }catch(e){ toast('Failed: '+e.message); return; }
+  $('tbody').querySelectorAll('.rowsel').forEach(cb=>cb.checked=SEL.has(cb.dataset.id)); syncSelAll(); syncBatchBar(); };
+async function batchPatch(patch,verb){ const ids=[...SEL]; if(!ids.length)return;
+  try{ await api(`mice?id=in.(${ids.join(',')})`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:Object.assign({updated_by:USER.id,updated_at:new Date().toISOString()},patch)});
+    await audit('mice',null,verb,null,Object.assign({count:ids.length},patch)); toast(`${verb==='BATCH_VERIFY'?'Verified':'Updated'} ${ids.length} mice`); SEL.clear(); loadColony();
+  }catch(e){ toast('Update failed: '+e.message); } }
+$('batchApply').onclick=()=>{ const n=SEL.size; if(!n)return; const f=$('batchField').value, v=$('batchValue').value;
+  const fl=$('batchField').selectedOptions[0].text, vl=$('batchValue').selectedOptions[0].text;
+  if(!confirm(`Set ${fl} = “${vl}” for ${n} selected mice?`))return; batchPatch({[f]:v},'BATCH_UPDATE'); };
+$('batchVerify').onclick=()=>{ const n=SEL.size; if(!n)return; if(!confirm(`Mark ${n} mice verified today?`))return; batchPatch({last_verified:todayStr()},'BATCH_VERIFY'); };
+$('batchDelete').onclick=async()=>{ const ids=[...SEL]; if(!ids.length)return;
+  if(!confirm(`Delete ${ids.length} mice permanently? This can't be undone.`))return;
+  try{ const r=await api(`mice?id=in.(${ids.join(',')})`,{method:'DELETE',headers:{Prefer:'return=representation'}});
+    if(!r.data||!r.data.length){ toast('Delete blocked by DB — run migration_002.sql'); return; }
+    await audit('mice',null,'BATCH_DELETE',{count:r.data.length},null); toast(`Deleted ${r.data.length} mice`); SEL.clear(); loadColony();
+  }catch(e){ toast('Delete failed: '+e.message); } };
 
 $('exportCsv').onclick=async()=>{
   try{
@@ -826,6 +883,7 @@ async function boot(){
   $('fOwner').innerHTML='<option value="">any</option>'+USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
   $('fCohort').innerHTML='<option value="">any</option>'+COHORTS.map(c=>`<option>${esc(c)}</option>`).join('');
   $('fFac').innerHTML='<option value="">any</option>'+FACILITIES.map(f=>`<option>${esc(f)}</option>`).join('');
+  fillBatchValue();
   if(USER&&USER.id){ startApp(); } else { showLogin(); }
 }
 boot();
