@@ -33,10 +33,17 @@ create table if not exists mice (
   facility text,
   sex text check (sex in ('M','F','U')),
   dob date,                        -- age is DERIVED from this, never stored
+  dob_estimated boolean default false, -- true = dob was back-computed from a rough age
   date_of_death date,
   cohort text,                     -- controlled vocab: WT/APP/Tau/PD/other
   genotype_label text,             -- free-text detail + search cache
   strain_background text,
+  room text,                       -- structured location (also flattened into current_location)
+  rack text,
+  rack_row text,                   -- single value or a range like "1-4"
+  rack_col text,                   -- e.g. "A" or "A-C"
+  n_cages int,                     -- # cages the cohort occupies (informational)
+  batch_id uuid,                   -- groups mice added together as one cohort
   status text not null default 'alive'
     check (status in ('alive','sacrificed','transferred','dead','unknown')),
   responsible_person uuid references app_users(id),
@@ -53,6 +60,8 @@ create index if not exists mice_cohort_idx   on mice(cohort);
 create index if not exists mice_owner_idx    on mice(responsible_person);
 create index if not exists mice_dob_idx      on mice(dob);
 create index if not exists mice_tag_idx      on mice(tag_id);
+create index if not exists mice_facility_idx on mice(facility);
+create index if not exists mice_batch_idx    on mice(batch_id);
 
 create table if not exists mouse_allele (
   mouse_id uuid references mice(id) on delete cascade,

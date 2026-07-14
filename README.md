@@ -21,7 +21,7 @@ Supabase Auth (magic-link or Google SSO) **without changing the schema**.
 
 ## One-time setup (~10 min)
 1. **Create a Supabase project** (supabase.com → New project; free tier is fine for now). Pick a region near Salk (West US).
-2. **Run the schema:** Supabase → SQL Editor → New query → paste all of `schema.sql` → Run. (Run it once.)
+2. **Run the schema:** Supabase → SQL Editor → New query → paste all of `schema.sql` → Run. (Run it once.) `schema.sql` already includes the cohort columns; **if you set up before those existed, also run `migration_001.sql` once** (safe to re-run — the app shows a banner if it's missing).
 3. **Add people:** either in the app's **People** tab after logging in, or in SQL:
    ```sql
    insert into app_users (full_name, role) values
@@ -32,8 +32,8 @@ Supabase Auth (magic-link or Google SSO) **without changing the schema**.
 6. **Open the app** (`index.html` or the hosted URL). On first load it asks for the URL + key — paste them; they're saved in your browser. (Once you send me the two values I can hardcode them so nobody has to paste.)
 
 ## Using it
-- **Colony tab:** filter by search (tag/genotype), sex, cohort, status, age window (months), owner, location; click any column header to sort; click a row for the detail + timeline; **CSV** exports the current filtered set.
-- **Add mouse:** quick form. Age is never entered — it's computed from **DOB**.
+- **Colony tab:** filter by search (tag/genotype), sex, cohort, **facility**, status, age window (months), owner, location; click any column header to sort; click a row for the detail + timeline; **CSV** exports the current filtered set.
+- **Add cohort:** enter a whole cage/cohort at once — required **Genotype, Owner, Sex (by count: # male / female / unknown), and Age**. Mouse numbers can be left **blank (pending)** and auto-file an **ear-tag request**, or entered as a list/range (`4471-4478`). Age is either a real **DOB** or a **rough age → computed DOB flagged as estimated** (`~` in the list, editable later) or deferred (*Unknown, add later*). Location is structured: **Facility → Room → Rack → Row/Col (single or range) → # cages**.
 - **Mouse detail:** view/edit fields, "✓ mark verified today" (feeds the `stale >30d` badge), and a merged **timeline** (birth → experiments → procedures → death).
 - **People:** add lab members and set the shared password.
 
