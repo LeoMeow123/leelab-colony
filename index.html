@@ -179,8 +179,8 @@
       <button class="btn sm" id="batchAll">Select all</button>
       <span class="batch-sep"></span>
       <label style="font-size:12px">Set</label>
-      <select class="in" id="batchField"><option value="cohort">Cohort</option><option value="responsible_person">Owner</option><option value="status">Status</option></select>
-      <select class="in" id="batchValue"></select>
+      <select class="in" id="batchField"><option value="cohort">Cohort</option><option value="genotype_label">Genotype</option><option value="responsible_person">Owner</option><option value="status">Status</option></select>
+      <span id="batchValWrap"></span>
       <button class="btn p sm" id="batchApply">Apply</button>
       <span class="batch-sep"></span>
       <button class="btn g sm" id="batchVerify">✓ Verify today</button>
@@ -521,11 +521,13 @@ function toggleAllOnPage(on){ $('tbody').querySelectorAll('.rowsel').forEach(cb=
 function syncMine(){ $('fMine').classList.toggle('active', !!(USER&&USER.id&&$('fOwner').value===USER.id)); }
 function syncBatchBar(){ const n=SEL.size; $('batchBar').classList.toggle('hidden',n===0); $('batchCount').textContent=n+' selected';
   const more=total>n; $('batchAll').classList.toggle('hidden',!more); $('batchAll').textContent=`Select all ${total}`; }
-function fillBatchValue(){ const f=$('batchField').value; let o='';
+function fillBatchValue(){ const f=$('batchField').value;
+  if(f==='genotype_label'){ $('batchValWrap').innerHTML='<input class="in" id="batchValue" placeholder="genotype text" style="min-width:150px">'; return; }
+  let o='';
   if(f==='cohort') o=COHORTS.map(c=>`<option>${esc(c)}</option>`).join('');
   else if(f==='responsible_person') o=USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
   else o=['alive','sacrificed','transferred','dead','unknown'].map(s=>`<option>${s}</option>`).join('');
-  $('batchValue').innerHTML=o; }
+  $('batchValWrap').innerHTML=`<select class="in" id="batchValue">${o}</select>`; }
 ['fSearch','fLoc'].forEach(id=>$(id).addEventListener('input',debounce(()=>{SEL.clear();page=0;loadColony();},300))); // changing the filtered set drops the selection so a batch op can't hit rows you can no longer see
 ['fSex','fCohort','fFac','fStatus','fAgeMin','fAgeMax','fOwner'].forEach(id=>$(id).addEventListener('change',()=>{SEL.clear();syncMine();page=0;loadColony();}));
 $('fClear').onclick=()=>{['fSearch','fLoc','fAgeMin','fAgeMax'].forEach(i=>$(i).value='');['fSex','fCohort','fFac','fOwner'].forEach(i=>$(i).value='');$('fStatus').value='alive';SEL.clear();syncMine();page=0;loadColony();};
@@ -552,8 +554,9 @@ async function batchPatch(patch,verb){ const ids=[...SEL]; if(!ids.length)return
     const n=rows.length; await audit('mice',null,verb,null,Object.assign({count:n,requested:ids.length},patch));
     toast(`${verb==='BATCH_VERIFY'?'Verified':'Updated'} ${n}${n!==ids.length?' of '+ids.length:''} mice`); SEL.clear(); loadColony();
   }catch(e){ toast('Update failed: '+e.message); } }
-$('batchApply').onclick=()=>{ const n=SEL.size; if(!n)return; const f=$('batchField').value, v=$('batchValue').value;
-  const fl=$('batchField').selectedOptions[0].text, vl=$('batchValue').selectedOptions[0].text;
+$('batchApply').onclick=()=>{ const n=SEL.size; if(!n)return; const f=$('batchField').value, el=$('batchValue'), v=el.value.trim();
+  if(f==='genotype_label'&&!v){ toast('Enter a genotype'); return; }
+  const fl=$('batchField').selectedOptions[0].text, vl=el.tagName==='SELECT'?el.selectedOptions[0].text:v;
   if(!confirm(`Set ${fl} = “${vl}” for ${n} selected mice?`))return; batchPatch({[f]:v},'BATCH_UPDATE'); };
 $('batchVerify').onclick=()=>{ const n=SEL.size; if(!n)return; if(!confirm(`Mark ${n} mice verified today?`))return; batchPatch({last_verified:todayStr()},'BATCH_VERIFY'); };
 $('batchDelete').onclick=async()=>{ const ids=[...SEL]; if(!ids.length)return;
@@ -736,8 +739,13 @@ function renderCohortForm(){
       <div class="field"><label># cages</label><input class="in" id="c_ncages" type="number" min="0"></div>
     </div>
     <div class="section-h">Mouse numbers</div>
-    <div class="field"><label>Numbers (optional — blank = pending; separate with comma/space/newline; ranges like 4471-4486 ok. Count must match the total.)</label><textarea class="in" id="c_nums" rows="2" placeholder="blank = pending, ear-tag later"></textarea></div>
-    <label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" id="c_eartag" checked> If pending, file an ear-tag request for this cohort</label>
+    <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:6px">Optional — leave a box blank if numbers are pending (ear-tag later). Enter one per mouse of that sex, or a range like 4471-4479. Each box's count must match its sex count above, so tags line up with the right sex.</div>
+    <div class="grid3">
+      <div class="field"><label>Male #s</label><textarea class="in" id="c_nums_m" rows="2" placeholder="blank = pending"></textarea></div>
+      <div class="field"><label>Female #s</label><textarea class="in" id="c_nums_f" rows="2" placeholder="blank = pending"></textarea></div>
+      <div class="field"><label>Unknown-sex #s</label><textarea class="in" id="c_nums_u" rows="2" placeholder="blank = pending"></textarea></div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" id="c_eartag" checked> If any numbers are pending, file an ear-tag request for this cohort</label>
     <div class="field" style="margin-top:8px"><label>Notes</label><input class="in" id="c_notes"></div>`;
   $('c_agebasis').onchange=()=>{ const v=$('c_agebasis').value;
     $('c_dobwrap').classList.toggle('hidden',v!=='dob'); $('c_agewrap').classList.toggle('hidden',v!=='age'); };
@@ -760,29 +768,35 @@ $('addSave').onclick=async()=>{
     rack_row:rangeStr($('c_rowfrom').value,$('c_rowto').value), rack_col:rangeStr($('c_colfrom').value,$('c_colto').value),
     n_cages:$('c_ncages').value?+$('c_ncages').value:null};
   const current_location=buildLoc(loc)||null;
-  const numsRaw=g('c_nums'); let nums=[];
-  if(numsRaw){
-    nums=parseNums(numsRaw);
-    const bad=nums.find(n=>/-/.test(n)); if(bad){ $('addErr').textContent=`“${bad}” isn't a valid number or range (range span must be < 1000).`; return; }
-    const dup=nums.find((n,i)=>nums.indexOf(n)!==i); if(dup){ $('addErr').textContent=`Number ${dup} appears more than once.`; return; }
-    if(nums.length!==total){ $('addErr').textContent=`You entered ${nums.length} number${nums.length===1?'':'s'} but this cohort has ${total} mice. Enter one per mouse, a range like 4471-${4470+total}, or leave the box blank for pending numbers.`; return; }
-  }
   const batch_id=crypto.randomUUID();
   const today=todayStr();
   const geno=g('c_geno'), notes=g('c_notes');
-  const sexes=[].concat(Array(nm).fill('M'),Array(nf).fill('F'),Array(nu).fill('U'));
-  const rows=sexes.map((sex,i)=>Object.assign({tag_id:nums[i]||null, sex, cohort, genotype_label:geno, dob, dob_estimated:dobEst,
-    responsible_person:owner, current_location, status:'alive', batch_id, notes,
-    created_by:USER.id, updated_by:USER.id, last_verified:today}, loc));
+  // parse numbers PER SEX so each tag lands on a mouse of the right sex
+  function pnum(boxId,count,label){ const raw=g(boxId); if(!raw) return new Array(count).fill(null);
+    const arr=parseNums(raw);
+    const bad=arr.find(n=>/-/.test(n)); if(bad) throw `${label} #s: “${bad}” isn't a valid number or range.`;
+    const dup=arr.find((n,i)=>arr.indexOf(n)!==i); if(dup) throw `${label} #s: ${dup} appears more than once.`;
+    if(arr.length!==count) throw `${label} #s: you entered ${arr.length} for ${count} ${label.toLowerCase()} mice.`;
+    return arr; }
+  let mN,fN,uN;
+  try{ mN=pnum('c_nums_m',nm,'Male'); fN=pnum('c_nums_f',nf,'Female'); uN=pnum('c_nums_u',nu,'Unknown'); }
+  catch(msg){ $('addErr').textContent=msg; return; }
+  const assigned=[].concat(mN,fN,uN).filter(Boolean);
+  const dupAll=assigned.find((n,i)=>assigned.indexOf(n)!==i); if(dupAll){ $('addErr').textContent=`Number ${dupAll} is used more than once across sexes.`; return; }
+  const common={cohort, genotype_label:geno, dob, dob_estimated:dobEst, responsible_person:owner, current_location,
+    status:'alive', batch_id, notes, created_by:USER.id, updated_by:USER.id, last_verified:today};
+  const rows=[];
+  [['M',mN],['F',fN],['U',uN]].forEach(pair=>pair[1].forEach(num=>rows.push(Object.assign({tag_id:num||null, sex:pair[0]}, common, loc))));
+  const pending=rows.filter(r=>!r.tag_id).length;
   try{
     await api('mice',{method:'POST',headers:{Prefer:'return=minimal'},body:rows});
     await audit('mice',null,'INSERT_COHORT',null,{cohort,owner:userName(owner),count:total,batch_id,location:current_location,dob_estimated:dobEst});
     let extra='';
-    if(!numsRaw && $('c_eartag').checked){
-      await api('requests',{method:'POST',body:[{requester_id:USER.id, subject:`Ear-tag ${total} ${cohort} mice`,
-        body:`Pending ear tags — new ${cohort} cohort (${nm}M/${nf}F${nu?'/'+nu+'U':''}) at ${current_location||'—'}.`,
-        needed_cohort:cohort, quantity:total, assignee_id:owner, status:'open', priority:0}]});
-      extra=' + ear-tag request';
+    if(pending>0 && $('c_eartag').checked){
+      await api('requests',{method:'POST',body:[{requester_id:USER.id, subject:`Ear-tag ${pending} ${cohort} mice`,
+        body:`Pending ear tags — new ${cohort} cohort (${nm}M/${nf}F${nu?'/'+nu+'U':''}); ${pending} still need a number, at ${current_location||'—'}.`,
+        needed_cohort:cohort, quantity:pending, assignee_id:owner, status:'open', priority:0}]});
+      extra=` + ear-tag request (${pending})`;
     }
     toast(`Added ${total} mice`+extra); renderCohortForm(); switchTab('colony'); page=0; loadColony();
   }catch(e){ $('addErr').textContent=e.message; }
