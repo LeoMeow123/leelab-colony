@@ -462,6 +462,8 @@ function renderDetail(m,em,pr){
     <div class="section-h">Timeline</div>
     <div class="timeline">${tl.length?tl.map(i=>`<div class="tl-item"><span class="dt">${esc(i.date||'—')}</span><span class="tag">${esc(i.tag)}</span><span>${esc(i.txt)}</span></div>`).join(''):'<div style="color:var(--muted);font-size:12px">No experiments or procedures logged.</div>'}</div>
     <div class="modal-actions">
+      <button class="btn r sm" onclick="__mc.del()">Delete mouse</button>
+      ${m.batch_id?`<button class="btn r sm" onclick="__mc.delCohort()">Delete cohort…</button>`:''}
       <button class="btn g sm" onclick="__mc.verify()">✓ Mark verified today</button>
       <button class="btn p" onclick="__mc.edit()">Edit</button>
     </div>`;
@@ -524,6 +526,24 @@ window.__mc={
     try{ await api(`mice?id=eq.${curMouse.id}`,{method:'PATCH',body:{last_verified:today,updated_by:USER.id,updated_at:new Date().toISOString()}});
       await audit('mice',curMouse.id,'VERIFY',null,{last_verified:today}); toast('Marked verified'); openDetail(curMouse.id); loadColony(); }
     catch(e){ toast('Failed: '+e.message); }
+  },
+  del:async()=>{
+    if(!confirm(`Delete mouse ${curMouse.tag_id||'(no tag)'}? This permanently removes the record and can't be undone.`)) return;
+    try{
+      const r=await api(`mice?id=eq.${curMouse.id}`,{method:'DELETE',headers:{Prefer:'return=representation'}});
+      if(!r.data||!r.data.length){ toast('Delete blocked by DB — run migration_002.sql'); return; } // RLS returns 200 + [] when no delete policy
+      await audit('mice',curMouse.id,'DELETE',curMouse,null); toast('Mouse deleted'); closeDetail(); loadColony();
+    }catch(e){ toast('Delete failed: '+e.message); }
+  },
+  delCohort:async()=>{
+    const bid=curMouse.batch_id; if(!bid) return;
+    let sibs=[]; try{ sibs=(await api(`mice?batch_id=eq.${bid}&select=id`)).data||[]; }catch(_){}
+    if(!confirm(`Delete the whole cohort added together with this mouse — ${sibs.length} mice? This permanently removes all of them and can't be undone.`)) return;
+    try{
+      const r=await api(`mice?batch_id=eq.${bid}`,{method:'DELETE',headers:{Prefer:'return=representation'}});
+      if(!r.data||!r.data.length){ toast('Delete blocked by DB — run migration_002.sql'); return; }
+      await audit('mice',null,'DELETE_COHORT',{batch_id:bid,count:r.data.length},null); toast(`Deleted ${r.data.length} mice`); closeDetail(); page=0; loadColony();
+    }catch(e){ toast('Delete failed: '+e.message); }
   },
 };
 

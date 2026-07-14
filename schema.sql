@@ -203,7 +203,7 @@ declare
     'experiments','experiment_mice','procedures','requests','request_comments','raw_import','audit_log'];
   upd_tbls  text[] := array['app_users','app_config','alleles','mice','mouse_allele',
     'experiments','experiment_mice','procedures','requests','request_comments','raw_import'];
-  del_tbls  text[] := array['mouse_allele','experiment_mice','procedures','request_comments',
+  del_tbls  text[] := array['mice','mouse_allele','experiment_mice','procedures','request_comments',
     'requests','raw_import','alleles','experiments'];
 begin
   foreach t in array all_tbls loop
