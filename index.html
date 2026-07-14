@@ -78,7 +78,11 @@
   tbody tr:hover{background:var(--hover)}
   table{width:100%;border-collapse:collapse;font-size:13px}
   th{text-align:left;padding:9px 10px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none}
-  th .ar{color:var(--accent)}
+  th.selcol{cursor:default}
+  th .ar{color:var(--accent);font-size:10px;margin-left:1px}
+  th.sortable .ar{opacity:.3}
+  th.sortable.sorted .ar,th.sortable:hover .ar{opacity:1}
+  th.sortable:hover{color:var(--text)}
   td{padding:8px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
   tr:last-child td{border-bottom:none}
   tbody tr{cursor:pointer}
@@ -403,6 +407,16 @@ const COLS=[
 let sortKey='age_months', sortDir='asc', page=0, pageSize=50, total=0;
 let SEL=new Set(); // selected mouse ids for batch actions (persists across pages/filters until cleared)
 let viewMode='ind'; // 'ind' = one row per mouse, 'grp' = collapsed by genotype·sex·age·status
+let grpSortKey='', grpSortDir='asc', GRP_ROWS=[]; // grouped-view sort (client-side over the fetched rows)
+const GCOLS=[{k:'cohort',label:'Cohort'},{k:'genotype_label',label:'Genotype'},{k:'sex',label:'Sex'},{k:'age_months',label:'Age (mo)'},{k:'count',label:'Count'},{k:'owner',label:'Owner'},{k:'location',label:'Location'},{k:'status',label:'Status'}];
+function cmpVal(a,b,dir){ if(a==null&&b==null)return 0; if(a==null)return 1; if(b==null)return -1; // nulls last
+  const r=(typeof a==='number'&&typeof b==='number')?a-b:String(a).localeCompare(String(b)); return dir==='desc'?-r:r; }
+function grpVal(grp,k){ const ms=grp.ms, g=grp.g;
+  if(k==='count') return ms.length;
+  if(k==='age_months') return g.age_months;
+  if(k==='owner'){ const s=[...new Set(ms.map(m=>m.owner_name).filter(Boolean))]; return s.length===1?s[0]:(s.length?'~mixed':null); }
+  if(k==='location'){ const s=[...new Set(ms.map(m=>m.current_location).filter(Boolean))]; return s.length===1?s[0]:(s.length?'~mixed':null); }
+  return g[k]; }
 
 function buildQuery(forExport){
   const p=[];
@@ -438,23 +452,26 @@ async function loadGroups(){
   $('prev').disabled=true; $('next').disabled=true;
   try{
     const r=await api(buildQuery(true)); // every matching row (no paging), grouped client-side
-    const rows=r.data||[]; total=rows.length;
+    const rows=r.data||[]; total=rows.length; GRP_ROWS=rows;
     renderGroups(rows);
     $('mouseCountHdr').textContent = total?('· '+total.toLocaleString()+' mice'):'';
   }catch(e){ renderGroupHead(); $('tbody').innerHTML=`<tr><td colspan="9" class="empty">Error: ${esc(e.message)}</td></tr>`; }
 }
 function renderGroupHead(){
-  $('thead').innerHTML='<th class="selcol"></th>'+['Cohort','Genotype','Sex','Age (mo)','Count','Owner','Location','Status'].map(l=>`<th>${l}</th>`).join('');
+  $('thead').innerHTML='<th class="selcol"></th>'+GCOLS.map(c=>{ const a=grpSortKey===c.k; return `<th data-gk="${c.k}" class="sortable${a?' sorted':''}">${c.label} <span class="ar">${a?(grpSortDir==='asc'?'▲':'▼'):'⇅'}</span></th>`; }).join('');
+  $('thead').querySelectorAll('th[data-gk]').forEach(th=>th.onclick=()=>{ const k=th.dataset.gk; if(grpSortKey===k)grpSortDir=grpSortDir==='asc'?'desc':'asc'; else{grpSortKey=k;grpSortDir='asc';} renderGroups(GRP_ROWS); });
 }
 function renderGroups(rows){
   renderGroupHead();
   if(!rows.length){ $('tbody').innerHTML='<tr><td colspan="9" class="empty">No mice match. Adjust filters.</td></tr>'; $('pageInfo').textContent=''; syncBatchBar(); return; }
   const groups=new Map();
   rows.forEach(m=>{ const k=[m.cohort,m.genotype_label,m.sex,m.dob,m.status].join('¦'); if(!groups.has(k))groups.set(k,[]); groups.get(k).push(m); });
+  let garr=[...groups.values()].map(ms=>({ms,g:ms[0]}));
+  if(grpSortKey) garr.sort((A,B)=>cmpVal(grpVal(A,grpSortKey),grpVal(B,grpSortKey),grpSortDir));
   const uniq=arr=>{ const s=[...new Set(arr.map(x=>(x==null||x==='')?'∅':x))]; return s.length!==1?`mixed (${s.length})`:(s[0]==='∅'?'—':esc(s[0])); };
   let html='', gi=0;
-  for(const ms of groups.values()){
-    const g=ms[0], ids=ms.map(m=>m.id), allSel=ids.every(id=>SEL.has(id));
+  for(const grp of garr){
+    const ms=grp.ms, g=grp.g, ids=ms.map(m=>m.id), allSel=ids.every(id=>SEL.has(id));
     html+=`<tr class="grp" data-gi="${gi}" data-ids="${esc(ids.join(','))}">
       <td class="selcol"><input type="checkbox" class="grpsel"${allSel?' checked':''}></td>
       <td class="cohort"><span class="caret">▸</span> ${esc(g.cohort||'—')}</td>
@@ -488,7 +505,7 @@ function renderGroups(rows){
 }
 function renderHead(){
   $('thead').innerHTML='<th class="selcol"><input type="checkbox" id="selAll" title="Select all on this page"></th>'+
-    COLS.map(c=>`<th data-k="${c.k}">${c.label}${sortKey===c.k?` <span class="ar">${sortDir==='asc'?'▲':'▼'}</span>`:''}</th>`).join('');
+    COLS.map(c=>{ const a=sortKey===c.k; return `<th data-k="${c.k}" class="sortable${a?' sorted':''}">${c.label} <span class="ar">${a?(sortDir==='asc'?'▲':'▼'):'⇅'}</span></th>`; }).join('');
   $('thead').querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{ const k=th.dataset.k; if(sortKey===k)sortDir=sortDir==='asc'?'desc':'asc'; else{sortKey=k;sortDir='asc';} page=0; loadColony(); });
   const sa=$('selAll'); if(sa) sa.onchange=()=>toggleAllOnPage(sa.checked);
 }
