@@ -40,8 +40,9 @@ create table if not exists mice (
   strain_background text,
   room text,                       -- structured location (also flattened into current_location)
   rack text,
-  rack_row text,                   -- single value or a range like "1-4"
-  rack_col text,                   -- e.g. "A" or "A-C"
+  rack_row text,                   -- single value or a range like "1-4" (legacy; superseded by cage)
+  rack_col text,                   -- e.g. "A" or "A-C" (legacy)
+  cage text,                       -- cage number/label within a rack (defaults 1,2,3… per cohort; editable)
   n_cages int,                     -- # cages the cohort occupies (informational)
   batch_id uuid,                   -- groups mice added together as one cohort
   status text not null default 'healthy'
@@ -63,6 +64,7 @@ create index if not exists mice_dob_idx      on mice(dob);
 create index if not exists mice_tag_idx      on mice(tag_id);
 create index if not exists mice_facility_idx on mice(facility);
 create index if not exists mice_batch_idx    on mice(batch_id);
+create index if not exists mice_cage_idx     on mice(cage);
 
 create table if not exists mouse_allele (
   mouse_id uuid references mice(id) on delete cascade,

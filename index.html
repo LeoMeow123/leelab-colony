@@ -345,6 +345,7 @@ function cohortOptions(sel){ return '<option value="">—</option>'+COHORTS.map(
 function facilityOptions(sel){ return FACILITIES.map(f=>`<option${f===sel?' selected':''}>${esc(f)}</option>`).join(''); }
 function rangeStr(from,to){ from=(from||'').trim(); to=(to||'').trim(); if(!from&&!to)return null; if(!to||to===from)return from||to; return from+'-'+to; }
 function buildLoc(o){ const p=[]; if(o.facility)p.push(o.facility); if(o.room)p.push('Rm '+o.room); if(o.rack)p.push('Rack '+o.rack);
+  if(o.cage)p.push('Cage '+o.cage);
   const rc=[o.rack_row&&('r'+o.rack_row),o.rack_col&&('c'+o.rack_col)].filter(Boolean).join('/'); if(rc)p.push(rc); return p.join(' · '); }
 function localDate(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; } // local calendar date (toISOString would give UTC → off-by-one in the PT evening)
 function todayStr(){ return localDate(new Date()); }
@@ -681,6 +682,7 @@ function renderDetail(m,em,pr){
       <div class="kv"><span class="k">Strain</span><span>${esc(m.strain_background||'—')}</span></div>
       <div class="kv"><span class="k">Verified</span><span>${esc(m.last_verified||'never')}</span></div>
       <div class="kv"><span class="k">Facility</span><span>${esc(m.facility||'—')}</span></div>
+      <div class="kv"><span class="k">Cage</span><span>${esc(m.cage||'—')}</span></div>
     </div>
     <div class="kv"><span class="k">Genotype</span><span>${esc(m.genotype_label||'—')}</span></div>
     <div class="kv"><span class="k">Experiments</span><span>${esc(m.experiments||'—')}</span></div>
@@ -711,9 +713,9 @@ function fieldsHtml(m){
     <div class="field"><label>Facility</label><select class="in" id="e_fac">${facilityOptions(m.facility||'CRAF')}</select></div>
     <div class="field"><label>Room</label><input class="in" id="e_room" value="${esc(m.room||'')}"></div>
     <div class="field"><label>Rack</label><input class="in" id="e_rack" value="${esc(m.rack||'')}"></div>
-    <div class="field"><label>Row</label><input class="in" id="e_row" value="${esc(m.rack_row||'')}"></div>
-    <div class="field"><label>Col</label><input class="in" id="e_col" value="${esc(m.rack_col||'')}"></div>
-    <div class="field"><label># cages</label><input class="in" id="e_ncages" type="number" value="${esc(m.n_cages!=null?m.n_cages:'')}"></div>
+    <div class="field"><label>Cage</label><input class="in" id="e_cage" value="${esc(m.cage||'')}"></div>
+    <div class="field"><label>Row (legacy)</label><input class="in" id="e_row" value="${esc(m.rack_row||'')}"></div>
+    <div class="field"><label>Col (legacy)</label><input class="in" id="e_col" value="${esc(m.rack_col||'')}"></div>
   </div>
   <div class="field"><label>Genotype (free text)</label><input class="in" id="e_geno" value="${esc(m.genotype_label||'')}" placeholder="e.g. APPswe/PS1dE9 het"></div>
   <div class="field"><label>Experiments (comma-separated)</label><input class="in" id="e_exp" value="${esc(m.experiments||'')}" placeholder="e.g. T-maze, Social, HCM">${expChips('e_exp')}</div>
@@ -724,8 +726,8 @@ function readFields(){
   const g=id=>$(id).value.trim()||null;
   const o={tag_id:g('e_tag'),sex:g('e_sex'),dob:g('e_dob'),date_of_death:g('e_dod'),cohort:g('e_cohort'),
     status:$('e_status').value,responsible_person:g('e_owner'),
-    facility:g('e_fac'),room:g('e_room'),rack:g('e_rack'),rack_row:g('e_row'),rack_col:g('e_col'),
-    n_cages:g('e_ncages')?+g('e_ncages'):null, dob_estimated:$('e_dobest').value==='1',
+    facility:g('e_fac'),room:g('e_room'),rack:g('e_rack'),cage:g('e_cage'),rack_row:g('e_row'),rack_col:g('e_col'),
+    dob_estimated:$('e_dobest').value==='1',
     strain_background:g('e_strain'),genotype_label:g('e_geno'),experiments:g('e_exp'),notes:g('e_notes')};
   o.current_location=buildLoc(o)||null;
   return o;
@@ -774,18 +776,31 @@ window.__mc={
   },
 };
 
-// ---------- add cohort (bulk) ----------
+// ---------- add cohort (bulk, by cage) ----------
+let CAGES=[];
+function newCage(i){ return {cage:String(i+1), sex:'M', nums:'', count:''}; }
+function renderCages(){
+  $('c_cages').innerHTML=CAGES.map((c,i)=>`<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+      <span style="width:46px;color:var(--muted);font-size:12px">Cage</span>
+      <input class="in cg" data-i="${i}" data-k="cage" style="width:76px" title="cage number" placeholder="cage #" value="${esc(c.cage)}">
+      <select class="in cg" data-i="${i}" data-k="sex" style="width:74px" title="sex">${['M','F','U'].map(s=>`<option${c.sex===s?' selected':''}>${s}</option>`).join('')}</select>
+      <input class="in cg" data-i="${i}" data-k="nums" style="flex:1;min-width:150px" title="mouse numbers in this cage" placeholder="mouse #s — e.g. 4471-4478 (blank = pending)" value="${esc(c.nums)}">
+      <input class="in cg" data-i="${i}" data-k="count" type="number" min="0" style="width:72px" title="# mice in cage" placeholder="# mice" value="${esc(c.count)}">
+      <button type="button" class="btn r sm" data-rm="${i}" title="remove cage">✕</button>
+    </div>`).join('')+`<button type="button" class="btn sm" id="c_addcage">+ Add cage</button>`;
+  const nc=$('c_ncages'); if(nc)nc.value=CAGES.length;
+  $('c_cages').querySelectorAll('.cg').forEach(el=>el.onchange=()=>{ const i=+el.dataset.i, k=el.dataset.k; CAGES[i][k]=el.value;
+    if(k==='nums'){ const n=parseNums(el.value).filter(x=>/^\d+$/.test(x)).length; if(n>0){ CAGES[i].count=String(n); renderCages(); } } });
+  $('c_cages').querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{ CAGES.splice(+b.dataset.rm,1); if(!CAGES.length)CAGES.push(newCage(0)); renderCages(); });
+  $('c_addcage').onclick=()=>{ CAGES.push(newCage(CAGES.length)); renderCages(); };
+}
 function renderCohortForm(){
+  CAGES=[newCage(0)];
   $('cohortForm').innerHTML=`
     <div class="grid3">
       <div class="field"><label>Cohort / genotype *</label><select class="in" id="c_cohort">${cohortOptions('')}</select></div>
       <div class="field"><label>Owner *</label><select class="in" id="c_owner">${ownerOptions('')}</select></div>
       <div class="field"><label>Genotype detail</label><input class="in" id="c_geno" placeholder="e.g. APPswe/PS1dE9 het"></div>
-    </div>
-    <div class="grid3">
-      <div class="field"><label># Male</label><input class="in" id="c_nm" type="number" min="0" value="0"></div>
-      <div class="field"><label># Female</label><input class="in" id="c_nf" type="number" min="0" value="0"></div>
-      <div class="field"><label># Unknown sex</label><input class="in" id="c_nu" type="number" min="0" value="0"></div>
     </div>
     <div class="section-h">Age / DOB *</div>
     <div class="grid3">
@@ -798,21 +813,18 @@ function renderCohortForm(){
       <div class="field"><label>Facility *</label><select class="in" id="c_fac">${facilityOptions('CRAF')}</select></div>
       <div class="field"><label>Room</label><input class="in" id="c_room"></div>
       <div class="field"><label>Rack</label><input class="in" id="c_rack"></div>
-      <div class="field"><label>Row (from → to)</label><div style="display:flex;gap:6px"><input class="in" id="c_rowfrom" placeholder="from"><input class="in" id="c_rowto" placeholder="to"></div></div>
-      <div class="field"><label>Col (from → to)</label><div style="display:flex;gap:6px"><input class="in" id="c_colfrom" placeholder="from"><input class="in" id="c_colto" placeholder="to"></div></div>
-      <div class="field"><label># cages</label><input class="in" id="c_ncages" type="number" min="0"></div>
     </div>
-    <div class="section-h">Mouse numbers</div>
-    <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:6px">Optional — leave a box blank if numbers are pending (ear-tag later). Enter one per mouse of that sex, or a range like 4471-4479. Each box's count must match its sex count above, so tags line up with the right sex.</div>
-    <div class="grid3">
-      <div class="field"><label>Male #s</label><textarea class="in" id="c_nums_m" rows="2" placeholder="blank = pending"></textarea></div>
-      <div class="field"><label>Female #s</label><textarea class="in" id="c_nums_f" rows="2" placeholder="blank = pending"></textarea></div>
-      <div class="field"><label>Unknown-sex #s</label><textarea class="in" id="c_nums_u" rows="2" placeholder="blank = pending"></textarea></div>
-    </div>
-    <label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" id="c_eartag" checked> If any numbers are pending, file an ear-tag request for this cohort</label>
+    <div class="section-h">Cages</div>
+    <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:8px">One row per cage (usually single-sex). Enter the cage's mouse numbers (a list or a range like 4471-4478) and the count fills in — or leave numbers blank and just type how many mice are in the cage. Cage # defaults to 1, 2, 3… — change it if your cages are labeled otherwise. All of this is editable later.</div>
+    <div class="field" style="max-width:170px"><label># of cages</label><input class="in" id="c_ncages" type="number" min="1" value="1"></div>
+    <div id="c_cages" style="margin-top:8px"></div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:10px"><input type="checkbox" id="c_eartag" checked> If any numbers are pending, file an ear-tag request for this cohort</label>
     <div class="section-h">Experiments</div>
     <div class="field"><label>Experiments this cohort has been through (comma-separated)</label><input class="in" id="c_exp" placeholder="e.g. T-maze, Social, HCM">${expChips('c_exp')}</div>
     <div class="field" style="margin-top:8px"><label>Notes</label><input class="in" id="c_notes"></div>`;
+  renderCages();
+  $('c_ncages').onchange=()=>{ let n=parseInt($('c_ncages').value,10); if(!(n>=1))n=1; if(n>200)n=200;
+    while(CAGES.length<n)CAGES.push(newCage(CAGES.length)); if(CAGES.length>n)CAGES.length=n; renderCages(); };
   $('c_agebasis').onchange=()=>{ const v=$('c_agebasis').value;
     $('c_dobwrap').classList.toggle('hidden',v!=='dob'); $('c_agewrap').classList.toggle('hidden',v!=='age'); };
 }
@@ -820,51 +832,44 @@ $('addSave').onclick=async()=>{
   $('addErr').textContent='';
   const g=id=>{const el=$(id);return el?(el.value.trim()||null):null;};
   const cohort=g('c_cohort'), owner=g('c_owner');
-  const cnt=id=>{const v=$(id).value.trim(); if(v==='')return 0; const n=Number(v); return (Number.isInteger(n)&&n>=0)?n:NaN;};
-  const nm=cnt('c_nm'), nf=cnt('c_nf'), nu=cnt('c_nu');
   if(!cohort){ $('addErr').textContent='Cohort / genotype is required.'; return; }
   if(!owner){ $('addErr').textContent='Owner is required.'; return; }
-  if([nm,nf,nu].some(Number.isNaN)){ $('addErr').textContent='Counts must be whole numbers ≥ 0 (# male / female / unknown).'; return; }
-  const total=nm+nf+nu;
-  if(total<1){ $('addErr').textContent='Enter at least one mouse (# male / female / unknown).'; return; }
   let dob=null, dobEst=false; const basis=$('c_agebasis').value;
   if(basis==='dob'){ dob=g('c_dob'); if(!dob){ $('addErr').textContent='Enter a DOB, or switch to “Estimate from age” / “Unknown (add later)”.'; return; } }
   else if(basis==='age'){ const a=parseFloat($('c_age').value); if(!(a>0)){ $('addErr').textContent='Enter a rough age, or choose “Unknown (add later)”.'; return; } dob=ageToDob(a,$('c_ageunit').value); dobEst=true; }
-  const loc={facility:g('c_fac'),room:g('c_room'),rack:g('c_rack'),
-    rack_row:rangeStr($('c_rowfrom').value,$('c_rowto').value), rack_col:rangeStr($('c_colfrom').value,$('c_colto').value),
-    n_cages:$('c_ncages').value?+$('c_ncages').value:null};
-  const current_location=buildLoc(loc)||null;
-  const batch_id=crypto.randomUUID();
-  const today=todayStr();
+  const baseLoc={facility:g('c_fac'),room:g('c_room'),rack:g('c_rack')};
+  const batch_id=crypto.randomUUID(), today=todayStr();
   const geno=g('c_geno'), notes=g('c_notes'), exp=g('c_exp');
-  // parse numbers PER SEX so each tag lands on a mouse of the right sex
-  function pnum(boxId,count,label){ const raw=g(boxId); if(!raw) return new Array(count).fill(null);
-    const arr=parseNums(raw);
-    const bad=arr.find(n=>/-/.test(n)); if(bad) throw `${label} #s: “${bad}” isn't a valid number or range.`;
-    const dup=arr.find((n,i)=>arr.indexOf(n)!==i); if(dup) throw `${label} #s: ${dup} appears more than once.`;
-    if(arr.length!==count) throw `${label} #s: you entered ${arr.length} for ${count} ${label.toLowerCase()} mice.`;
-    return arr; }
-  let mN,fN,uN;
-  try{ mN=pnum('c_nums_m',nm,'Male'); fN=pnum('c_nums_f',nf,'Female'); uN=pnum('c_nums_u',nu,'Unknown'); }
-  catch(msg){ $('addErr').textContent=msg; return; }
-  const assigned=[].concat(mN,fN,uN).filter(Boolean);
-  const dupAll=assigned.find((n,i)=>assigned.indexOf(n)!==i); if(dupAll){ $('addErr').textContent=`Number ${dupAll} is used more than once across sexes.`; return; }
-  const common={cohort, genotype_label:geno, dob, dob_estimated:dobEst, responsible_person:owner, current_location,
-    status:'healthy', experiments:exp, batch_id, notes, created_by:USER.id, updated_by:USER.id, last_verified:today};
-  const rows=[];
-  [['M',mN],['F',fN],['U',uN]].forEach(pair=>pair[1].forEach(num=>rows.push(Object.assign({tag_id:num||null, sex:pair[0]}, common, loc))));
-  const pending=rows.filter(r=>!r.tag_id).length;
+  const common={cohort, genotype_label:geno, dob, dob_estimated:dobEst, responsible_person:owner, status:'healthy',
+    experiments:exp, batch_id, notes, created_by:USER.id, updated_by:USER.id, last_verified:today,
+    rack_row:null, rack_col:null, n_cages:CAGES.length};
+  const rows=[], allNums=[];
+  for(let i=0;i<CAGES.length;i++){ const c=CAGES[i], cageNo=(c.cage||'').trim()||String(i+1);
+    let nums=[]; if((c.nums||'').trim()){ nums=parseNums(c.nums);
+      const bad=nums.find(n=>/-/.test(n)); if(bad){ $('addErr').textContent=`Cage ${cageNo}: “${bad}” isn't a valid number or range.`; return; }
+      const dup=nums.find((n,j)=>nums.indexOf(n)!==j); if(dup){ $('addErr').textContent=`Cage ${cageNo}: ${dup} appears more than once.`; return; } }
+    const count=(c.count||'').trim()!==''? Number(c.count) : nums.length;
+    if(!Number.isInteger(count)||count<0){ $('addErr').textContent=`Cage ${cageNo}: # mice must be a whole number ≥ 0.`; return; }
+    if(nums.length>count){ $('addErr').textContent=`Cage ${cageNo}: ${nums.length} numbers for only ${count} mice.`; return; }
+    const cl=buildLoc(Object.assign({cage:cageNo}, baseLoc))||null;
+    for(let j=0;j<count;j++){ const tag=nums[j]||null; if(tag)allNums.push(tag);
+      rows.push(Object.assign({tag_id:tag, sex:c.sex||'U', cage:cageNo, current_location:cl,
+        facility:baseLoc.facility, room:baseLoc.room, rack:baseLoc.rack}, common)); }
+  }
+  if(!rows.length){ $('addErr').textContent='Add at least one mouse — enter numbers or a # of mice in a cage.'; return; }
+  const dupAll=allNums.find((n,i)=>allNums.indexOf(n)!==i); if(dupAll){ $('addErr').textContent=`Number ${dupAll} is used in more than one cage.`; return; }
+  const total=rows.length, pending=rows.filter(r=>!r.tag_id).length;
   try{
     await api('mice',{method:'POST',headers:{Prefer:'return=minimal'},body:rows});
-    await audit('mice',null,'INSERT_COHORT',null,{cohort,owner:userName(owner),count:total,batch_id,location:current_location,dob_estimated:dobEst});
+    await audit('mice',null,'INSERT_COHORT',null,{cohort,owner:userName(owner),count:total,cages:CAGES.length,batch_id,dob_estimated:dobEst});
     let extra='';
     if(pending>0 && $('c_eartag').checked){
       await api('requests',{method:'POST',body:[{requester_id:USER.id, subject:`Ear-tag ${pending} ${cohort} mice`,
-        body:`Pending ear tags — new ${cohort} cohort (${nm}M/${nf}F${nu?'/'+nu+'U':''}); ${pending} still need a number, at ${current_location||'—'}.`,
+        body:`Pending ear tags — new ${cohort} cohort, ${total} mice in ${CAGES.length} cage(s); ${pending} still need a number.`,
         needed_cohort:cohort, quantity:pending, assignee_id:owner, status:'open', priority:0}]});
       extra=` + ear-tag request (${pending})`;
     }
-    toast(`Added ${total} mice`+extra); renderCohortForm(); switchTab('colony'); page=0; loadColony();
+    toast(`Added ${total} mice in ${CAGES.length} cage(s)`+extra); renderCohortForm(); switchTab('colony'); page=0; loadColony();
   }catch(e){ $('addErr').textContent=e.message; }
 };
 
@@ -880,7 +885,7 @@ async function renderMine(){
   if(!where){ $('mineList').innerHTML='<div class="empty">Log in to see your colony.</div>'; return; }
   $('mineList').innerHTML='<div class="sub" style="color:var(--muted)">Loading…</div>';
   try{
-    const r=await api(`mouse_v?${where}&select=id,tag_id,sex,cohort,genotype_label,dob,dob_estimated,age_months,status,current_location,facility,room,rack,rack_row,rack_col,n_cages,owner_name,experiments,batch_id,created_at&order=created_at.desc`);
+    const r=await api(`mouse_v?${where}&select=id,tag_id,sex,cohort,genotype_label,dob,dob_estimated,age_months,status,current_location,facility,room,rack,rack_row,rack_col,cage,n_cages,owner_name,experiments,batch_id,created_at&order=created_at.desc`);
     const rows=r.data||[];
     $('mineHdr').textContent = rows.length?('· '+rows.length+' mice'):'';
     if(!rows.length){ $('mineList').innerHTML='<div class="empty">No mice yet. Add one in the “＋ Add cohort” tab.</div>'; return; }
@@ -943,10 +948,12 @@ window.__cohort={
       </div>
       <div class="section-h">Add experiments (accumulates — blank keeps existing)</div>
       <div class="field"><input class="in" id="cm_exp" placeholder="e.g. HCM, Social">${expChips('cm_exp')}</div>
-      <details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px;color:var(--accent)">Edit individual mouse numbers (${ms.length})</summary>
-        <div style="max-height:220px;overflow:auto;margin-top:8px">${ms.map(m=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:5px">
-          <span style="width:78px;color:var(--muted);font-size:12px">${esc(m.sex||'?')}${m.dob_estimated?' ~':''}</span>
-          <input class="in cm_num" data-id="${esc(m.id)}" data-orig="${esc(m.tag_id||'')}" value="${esc(m.tag_id||'')}" placeholder="(pending)" style="max-width:150px"></div>`).join('')}</div>
+      <details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px;color:var(--accent)">Edit individual mouse numbers &amp; cages (${ms.length})</summary>
+        <div style="display:flex;gap:8px;font-size:11px;color:var(--muted);margin:6px 0 2px"><span style="width:34px">Sex</span><span style="width:150px">Mouse #</span><span>Cage</span></div>
+        <div style="max-height:220px;overflow:auto">${ms.map(m=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:5px">
+          <span style="width:34px;color:var(--muted);font-size:12px">${esc(m.sex||'?')}</span>
+          <input class="in cm_num" data-id="${esc(m.id)}" data-orig="${esc(m.tag_id||'')}" value="${esc(m.tag_id||'')}" placeholder="(pending)" style="width:150px">
+          <input class="in cm_cage" data-id="${esc(m.id)}" data-orig="${esc(m.cage||'')}" value="${esc(m.cage||'')}" placeholder="cage" style="width:90px"></div>`).join('')}</div>
       </details>
       <div class="modal-actions"><button class="btn sm" onclick="__cohort.close()">Cancel</button><button class="btn p" onclick="__cohort.save(${gi})">Apply</button></div>
       <div class="err" id="cm_err"></div>`;
@@ -967,8 +974,12 @@ window.__cohort={
       Object.assign(patch,{facility:loc.facility,room:loc.room,rack:loc.rack,rack_row:loc.rack_row,rack_col:loc.rack_col,current_location:buildLoc(loc)||null}); }
     const uniformChanged=Object.keys(patch).length>2;
     const numEdits=[...$('cohortModal').querySelectorAll('.cm_num')].filter(el=>el.value.trim()!==(el.dataset.orig||'').trim()).map(el=>({id:el.dataset.id, tag:el.value.trim()||null}));
+    const cageEdits=[...$('cohortModal').querySelectorAll('.cm_cage')].filter(el=>el.value.trim()!==(el.dataset.orig||'').trim()).map(el=>({id:el.dataset.id, cage:el.value.trim()||null}));
+    const perMouse=new Map();
+    numEdits.forEach(e=>perMouse.set(e.id,Object.assign(perMouse.get(e.id)||{},{tag_id:e.tag})));
+    cageEdits.forEach(e=>perMouse.set(e.id,Object.assign(perMouse.get(e.id)||{},{cage:e.cage})));
     const addExp=v('cm_exp'); const newTags=addExp?addExp.split(',').map(s=>s.trim()).filter(Boolean):[];
-    if(!uniformChanged && !numEdits.length && !newTags.length){ $('cm_err').textContent='Change at least one field.'; return; }
+    if(!uniformChanged && !perMouse.size && !newTags.length){ $('cm_err').textContent='Change at least one field.'; return; }
     // reject a mouse number used twice within the cohort after the edits
     const finalTags=ms.map(m=>{ const e=numEdits.find(x=>x.id===m.id); return e?e.tag:(m.tag_id||null); }).filter(Boolean);
     const dupTag=finalTags.find((t,i)=>finalTags.indexOf(t)!==i);
@@ -980,8 +991,12 @@ window.__cohort={
         for(const pair of byExp){ const merged=dedupCI(pair[0].split(',').map(s=>s.trim()).filter(Boolean).concat(newTags)).join(', ');
           await inChunks(pair[1],'PATCH',{Prefer:'return=minimal'},Object.assign({experiments:merged},stamp)); }
         await audit('mice',null,'COHORT_ADD_EXPERIMENTS',{batch_id:g.batch_id,added:newTags.join(', '),count:ids.length},null); }
-      if(numEdits.length){ for(const e of numEdits){ await api(`mice?id=eq.${e.id}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:Object.assign({tag_id:e.tag},stamp)}); }
-        await audit('mice',null,'COHORT_RENUMBER',{batch_id:g.batch_id,count:numEdits.length},null); }
+      if(perMouse.size){ for(const [id,ch] of perMouse){ const m=ms.find(x=>x.id===id)||{}; const p=Object.assign({},ch,stamp);
+          if('cage' in ch){ const base={facility:'facility' in patch?patch.facility:m.facility, room:'room' in patch?patch.room:m.room,
+            rack:'rack' in patch?patch.rack:m.rack, rack_row:'rack_row' in patch?patch.rack_row:m.rack_row, rack_col:'rack_col' in patch?patch.rack_col:m.rack_col, cage:ch.cage};
+            p.current_location=buildLoc(base)||null; }
+          await api(`mice?id=eq.${id}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:p}); }
+        await audit('mice',null,'COHORT_RENUMBER',{batch_id:g.batch_id,count:perMouse.size},null); }
       toast('Cohort updated'); __cohort.close(); renderMine(); loadColony();
     }catch(e){ $('cm_err').textContent=e.message; } },
   del:async(gi)=>{ const ms=MINE_GROUPS[gi]; if(!ms)return; const ids=ms.map(m=>m.id);
@@ -995,7 +1010,7 @@ window.__cohort={
 $('cohortOverlay').addEventListener('mousedown',e=>{ if(e.target===$('cohortOverlay')) __cohort.close(); });
 
 // ---------- import (CSV / Excel) ----------
-const IMP_FIELDS=[['','— ignore —'],['tag_id','Mouse #'],['sex','Sex'],['cohort','Cohort'],['genotype_label','Genotype'],['dob','DOB (date)'],['age','Age (number)'],['status','Status'],['owner','Owner (name)'],['facility','Facility'],['room','Room'],['rack','Rack'],['rack_row','Row'],['rack_col','Col'],['experiments','Experiments'],['strain_background','Strain'],['date_of_death','Date of death'],['notes','Notes']];
+const IMP_FIELDS=[['','— ignore —'],['tag_id','Mouse #'],['sex','Sex'],['cohort','Cohort'],['genotype_label','Genotype'],['dob','DOB (date)'],['age','Age (number)'],['status','Status'],['owner','Owner (name)'],['facility','Facility'],['room','Room'],['rack','Rack'],['cage','Cage'],['rack_row','Row'],['rack_col','Col'],['experiments','Experiments'],['strain_background','Strain'],['date_of_death','Date of death'],['notes','Notes']];
 let IMP={headers:[],data:[],map:[],file:''};
 function parseCSV(t){ const rows=[]; let row=[],cur='',q=false;
   for(let i=0;i<t.length;i++){ const c=t[i];
@@ -1015,6 +1030,7 @@ function impGuess(h){ h=(h||'').toLowerCase().trim();
   if(/owner|responsible|investigator|^pi$|^user$/.test(h))return 'owner';
   if(/facility/.test(h))return 'facility';
   if(/room/.test(h))return 'room';
+  if(/cage/.test(h))return 'cage';
   if(/rack/.test(h))return 'rack';
   if(/\brow\b/.test(h))return 'rack_row';
   if(/\bcol/.test(h))return 'rack_col';
@@ -1123,10 +1139,10 @@ function impBuild(){
     if(tag){ if(seen.has(tag))warn.push('duplicate # in file'); else seen.add(tag); if(existing.has(tag))warn.push('# already in DB'); }
     const status=impStatus(get(r,'status'));
     if(dod && status==='healthy') warn.push('has a death date but status is healthy');
-    const loc={facility:get(r,'facility')||null,room:get(r,'room')||null,rack:get(r,'rack')||null,rack_row:get(r,'rack_row')||null,rack_col:get(r,'rack_col')||null};
+    const loc={facility:get(r,'facility')||null,room:get(r,'room')||null,rack:get(r,'rack')||null,cage:get(r,'cage')||null,rack_row:get(r,'rack_row')||null,rack_col:get(r,'rack_col')||null};
     const row={tag_id:tag, sex, cohort:get(r,'cohort')||dcohort||null, genotype_label:get(r,'genotype_label')||null,
       dob, dob_estimated:dobEst, status, responsible_person:owner,
-      facility:loc.facility, room:loc.room, rack:loc.rack, rack_row:loc.rack_row, rack_col:loc.rack_col,
+      facility:loc.facility, room:loc.room, rack:loc.rack, cage:loc.cage, rack_row:loc.rack_row, rack_col:loc.rack_col,
       current_location:buildLoc(loc)||null, experiments:get(r,'experiments')||null,
       strain_background:get(r,'strain_background')||null, date_of_death:dod,
       notes:get(r,'notes')||null, last_verified:today, created_by:USER.id, updated_by:USER.id };
@@ -1389,7 +1405,7 @@ function showMigrationBanner(){
 async function boot(){
   if(!configured()){ showScreen('setup'); if(URLB)$('cfgUrl').value=URLB; return; }
   await loadRefs();
-  try{ await api('mouse_v?select=batch_id,dob_estimated,facility&limit=0'); }catch(_){ showMigrationBanner(); } // migration_001.sql not run yet → warn instead of cryptic save errors
+  try{ await api('mouse_v?select=batch_id,dob_estimated,facility,cage&limit=0'); }catch(_){ showMigrationBanner(); } // a migration hasn't been run yet → warn instead of cryptic save errors
   // populate selects that persist across screens
   $('fOwner').innerHTML='<option value="">any</option>'+USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
   $('fCohort').innerHTML='<option value="">any</option>'+COHORTS.map(c=>`<option>${esc(c)}</option>`).join('');
