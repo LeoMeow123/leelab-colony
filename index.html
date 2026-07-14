@@ -1290,6 +1290,12 @@ function notifyEmails(targets, ownerId){ const set=new Set(); const missing=[];
   if(targets.includes('managers')){ const m=USERS.filter(u=>u.role==='manager'); if(!m.length)missing.push('(no managers)'); m.forEach(add); }
   if(targets.includes('pi')){ const p=USERS.filter(u=>u.role==='pi'); if(!p.length)missing.push('(no PI)'); p.forEach(add); }
   return {emails:[...set], missing:[...new Set(missing)]}; }
+async function sendRequestEmail(requestId, roles, ownerId){ // POST to the Edge Function; throws if it isn't deployed/reachable → caller falls back to mailto
+  const res=await fetch(URLB.replace(/\/$/,'')+'/functions/v1/notify-request',{
+    method:'POST', headers:authHeaders({'Content-Type':'application/json'}),
+    body:JSON.stringify({requestId, roles, ownerId})});
+  if(!res.ok) throw new Error('notify-request '+res.status);
+  return res.json(); }
 function openReqMail(emails, rec){
   const body=(`Hi,\n\nA mouse request was filed in the Lee Lab colony DB:\n\n  ${rec.subject}\n  ${rec.body||''}\n  Cohort: ${rec.needed_cohort||'any'} · Sex: ${rec.needed_sex||'any'} · Qty: ${rec.quantity||'—'}\n  Status: ${rec.status}\n\nFiled by ${USER.full_name}. Please review it in the colony app.\n`).slice(0,1200);
   window.location.href='mailto:'+emails.map(encodeURIComponent).join(',')+'?subject='+encodeURIComponent('Mouse request: '+rec.subject)+'&body='+encodeURIComponent(body); }
@@ -1354,13 +1360,22 @@ window.__rq={
         else { rec.status='routed_to_breeding'; rec.assignee_id=managerId(); }
       }
       const r=await api('requests',{method:'POST',headers:{Prefer:'return=representation'},body:[rec]});
-      await audit('requests', r.data&&r.data[0]&&r.data[0].id, 'INSERT', null, rec);
-      // notify chosen people via a pre-filled email (owner = real owner, not the breeding fallback)
+      const newId=r.data&&r.data[0]&&r.data[0].id;
+      await audit('requests', newId, 'INSERT', null, rec);
+      // notify chosen people: try the server (auto-send) first, fall back to a mail-client draft
       const notif=[]; if($('q_n_owner').checked)notif.push('owner'); if($('q_n_mgr').checked)notif.push('managers'); if($('q_n_pi').checked)notif.push('pi');
       let notifyMsg='';
-      if(notif.length){ const {emails,missing}=notifyEmails(notif, realOwner);
-        if(emails.length){ openReqMail(emails, rec); notifyMsg=' · draft email opened for '+emails.length+' recipient'+(emails.length>1?'s':''); }
-        if(missing.length) notifyMsg+=' · no email yet for: '+missing.join(', ');
+      if(notif.length){
+        let auto=null;
+        if(newId){ try{ auto=await sendRequestEmail(newId, notif, realOwner); }catch(_){ auto=null; } }
+        if(auto){ const sent=(auto.sent||[]).length, miss=auto.missing||[];
+          notifyMsg = sent? ' · emailed '+sent+' '+(sent>1?'people':'person') : ' · no email on file for the selected people';
+          if(miss.length) notifyMsg+=' (no email yet: '+miss.join(', ')+')';
+        } else { // server not set up / failed → open a pre-filled draft instead
+          const {emails,missing}=notifyEmails(notif, realOwner);
+          if(emails.length){ openReqMail(emails, rec); notifyMsg=' · draft email opened for '+emails.length+' recipient'+(emails.length>1?'s':''); }
+          if(missing.length) notifyMsg+=' · no email yet for: '+missing.join(', ');
+        }
       }
       $('reqOverlay').classList.remove('open');
       toast((rec.status==='routed_to_breeding' ? 'Sent to breeding queue (Bertha)' : 'Request sent to '+(userName(rec.assignee_id)||'owner'))+notifyMsg);

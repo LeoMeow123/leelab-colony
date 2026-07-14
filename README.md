@@ -43,9 +43,14 @@ ear-tag), `mouse_v` view (adds derived age + staleness), `app_users`, `alleles`,
 `experiments` + `experiment_mice`, `procedures`, `requests` (Phase 2), `raw_import`
 (Phase 2 import staging), `audit_log`. See `schema.sql`.
 
-## Not in Phase 1 yet (coming next)
-- **Excel/PDF import** with Claude extraction → review screen → bulk insert (`raw_import` table is ready).
-- **Request/approval queue** with email routing to owners + Bertha (`requests` table is ready).
+## Email notifications
+Requests can notify the owner / managers / PI. Out of the box this opens a
+pre-filled email **draft**. For fully **automatic** sending, deploy the
+`notify-request` Edge Function + Resend — see **`EMAIL_SETUP.md`**. Until then
+the app falls back to the draft popup, so it works either way.
+
+## Coming next
+- **Excel/PDF import** with Claude extraction (CSV/Excel import already shipped).
 - Experiment-enrollment UI and breeding/lineage.
 
 ## Two things I still need from you (to make the data correct)
