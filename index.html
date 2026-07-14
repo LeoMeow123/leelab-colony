@@ -288,6 +288,11 @@
   <div class="modal" id="cohortModal"></div>
 </div>
 
+<!-- FIRST-LOGIN EMAIL PROMPT (required, once) -->
+<div class="overlay" id="emailOverlay">
+  <div class="modal" id="emailModal"></div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -330,7 +335,7 @@ function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('sho
 // ---------- caches ----------
 let USERS=[], COHORTS=['WT','APP','Tau','PD'], FACILITIES=['CRAF','SAF','EBS','Other'];
 async function loadRefs(){
-  try{ const u=await api('app_users?select=id,full_name,role,is_active&order=full_name'); USERS=u.data||[]; }catch(_){ USERS=[]; }
+  try{ const u=await api('app_users?select=id,full_name,email,role,is_active&order=full_name'); USERS=u.data||[]; }catch(_){ USERS=[]; }
   try{ const c=await api('app_config?key=eq.cohorts&select=value'); if(c.data&&c.data[0]&&c.data[0].value) COHORTS=c.data[0].value.split(',').map(s=>s.trim()).filter(Boolean); }catch(_){}
   try{ const c=await api('app_config?key=eq.facilities&select=value'); if(c.data&&c.data[0]&&c.data[0].value) FACILITIES=c.data[0].value.split(',').map(s=>s.trim()).filter(Boolean); }catch(_){}
 }
@@ -383,7 +388,7 @@ $('loginBtn').onclick=async()=>{
     const got=await sha256(pass);
     if(!want||got!==want){ $('loginErr').textContent='Wrong password.'; return; }
     const u=USERS.find(x=>x.id===id);
-    USER={id:u.id,full_name:u.full_name,role:u.role};
+    USER={id:u.id,full_name:u.full_name,role:u.role,email:u.email||null};
     localStorage.setItem('mc:user',JSON.stringify(USER));
     startApp();
   }catch(e){ $('loginErr').textContent='Connection error: '+e.message; }
@@ -396,9 +401,30 @@ function startApp(){
   showScreen('app');
   $('whoName').textContent=USER.full_name;
   $('whoRole').textContent=USER.role;
+  const me=USERS.find(u=>u.id===USER.id); // pick up an email saved on a previous device/session
+  if(me&&me.email&&!USER.email){ USER.email=me.email; localStorage.setItem('mc:user',JSON.stringify(USER)); }
   renderCohortForm();
   switchTab('colony');
   loadColony();
+  if(!USER.email) promptEmail(); // first time only — once saved it never asks again
+}
+function promptEmail(){
+  $('emailModal').innerHTML=`<h2 style="margin:0 0 4px">Your email</h2>
+    <div class="sub" style="color:var(--muted);font-size:13px;margin-bottom:12px">Used to notify you about mouse requests. You only need to set this once.</div>
+    <div class="field"><label>Email</label><input class="in" id="em_val" type="email" placeholder="you@salk.edu" value="${esc(USER.email||'')}"></div>
+    <div class="modal-actions"><button class="btn p" id="em_save">Save</button></div>
+    <div class="err" id="em_err"></div>`;
+  $('emailOverlay').classList.add('open');
+  $('em_val').focus();
+  $('em_save').onclick=async()=>{
+    const v=$('em_val').value.trim();
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)){ $('em_err').textContent='Enter a valid email address.'; return; }
+    try{ await api('app_users?id=eq.'+USER.id,{method:'PATCH',body:{email:v}});
+      USER.email=v; localStorage.setItem('mc:user',JSON.stringify(USER));
+      const u=USERS.find(x=>x.id===USER.id); if(u)u.email=v;
+      $('emailOverlay').classList.remove('open'); toast('Email saved');
+    }catch(e){ $('em_err').textContent='Save failed: '+e.message; }
+  };
 }
 $('logout').onclick=()=>{ localStorage.removeItem('mc:user'); USER=null; showLogin(); };
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>switchTab(t.dataset.tab));
@@ -1225,10 +1251,25 @@ function openNewReq(){
       <div class="field"><label>Age ≥ (wk)</label><input class="in" id="q_agemin" type="number"></div>
       <div class="field"><label>Age ≤ (wk)</label><input class="in" id="q_agemax" type="number"></div>
     </div>
+    <div class="field"><label>Notify by email (opens a pre-filled email to them)</label>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px">
+        <label style="display:flex;gap:5px;align-items:center"><input type="checkbox" id="q_n_owner" checked> Owner</label>
+        <label style="display:flex;gap:5px;align-items:center"><input type="checkbox" id="q_n_mgr"> Managers</label>
+        <label style="display:flex;gap:5px;align-items:center"><input type="checkbox" id="q_n_pi"> PI</label>
+      </div></div>
     <div class="modal-actions"><button class="btn sm" onclick="__rq.close()">Cancel</button><button class="btn p" onclick="__rq.create()">Submit request</button></div>
     <div class="err" id="q_err"></div>`;
   $('reqOverlay').classList.add('open');
 }
+function notifyEmails(targets, ownerId){ const set=new Set(); const missing=[];
+  const add=id=>{ const u=USERS.find(x=>x.id===id); if(u){ if(u.email)set.add(u.email); else missing.push(u.full_name); } };
+  if(targets.includes('owner')&&ownerId) add(ownerId);
+  if(targets.includes('managers')){ const m=USERS.filter(u=>u.role==='manager'); if(!m.length)missing.push('(no managers)'); m.forEach(u=>u.email?set.add(u.email):missing.push(u.full_name)); }
+  if(targets.includes('pi')){ const p=USERS.filter(u=>u.role==='pi'); if(!p.length)missing.push('(no PI)'); p.forEach(u=>u.email?set.add(u.email):missing.push(u.full_name)); }
+  return {emails:[...set], missing:[...new Set(missing)]}; }
+function openReqMail(emails, rec){
+  const body=`Hi,\n\nA mouse request was filed in the Lee Lab colony DB:\n\n  ${rec.subject}\n  ${rec.body||''}\n  Cohort: ${rec.needed_cohort||'any'} · Sex: ${rec.needed_sex||'any'} · Qty: ${rec.quantity||'—'}\n  Status: ${rec.status}\n\nFiled by ${USER.full_name}. Please review it in the colony app.\n`;
+  window.location.href='mailto:'+emails.join(',')+'?subject='+encodeURIComponent('Mouse request: '+rec.subject)+'&body='+encodeURIComponent(body); }
 
 let curReq=null;
 async function openReq(id){
@@ -1291,8 +1332,16 @@ window.__rq={
       }
       const r=await api('requests',{method:'POST',headers:{Prefer:'return=representation'},body:[rec]});
       await audit('requests', r.data&&r.data[0]&&r.data[0].id, 'INSERT', null, rec);
+      // notify chosen people via a pre-filled email
+      const notif=[]; if($('q_n_owner').checked)notif.push('owner'); if($('q_n_mgr').checked)notif.push('managers'); if($('q_n_pi').checked)notif.push('pi');
+      let notifyMsg='';
+      if(notif.length){ const {emails,missing}=notifyEmails(notif, rec.assignee_id);
+        if(emails.length) openReqMail(emails, rec);
+        if(missing.length) notifyMsg=' · no email on file for: '+missing.join(', ');
+        else if(!emails.length) notifyMsg=' · no emails on file for the selected people';
+      }
       $('reqOverlay').classList.remove('open');
-      toast(rec.status==='routed_to_breeding' ? 'Sent to breeding queue (Bertha)' : 'Request sent to '+(userName(rec.assignee_id)||'owner'));
+      toast((rec.status==='routed_to_breeding' ? 'Sent to breeding queue (Bertha)' : 'Request sent to '+(userName(rec.assignee_id)||'owner'))+notifyMsg);
       renderRequests();
     }catch(e){ $('q_err').textContent=e.message; }
   },
