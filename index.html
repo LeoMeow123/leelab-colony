@@ -154,6 +154,7 @@
       <button class="tab active" data-tab="colony">Colony</button>
       <button class="tab" data-tab="mine">My colony</button>
       <button class="tab" data-tab="add">＋ Add cohort</button>
+      <button class="tab" data-tab="import">Import</button>
       <button class="tab" data-tab="requests">Requests</button>
       <button class="tab" data-tab="people">People</button>
     </div>
@@ -220,6 +221,16 @@
       <div id="cohortForm"></div>
       <div class="modal-actions"><button class="btn p" id="addSave">Add cohort</button></div>
       <div class="err" id="addErr"></div>
+    </div>
+  </div>
+
+  <!-- IMPORT -->
+  <div class="wrap hidden" id="tab-import">
+    <div class="card" style="max-width:960px">
+      <h1 style="font-size:17px;margin-bottom:2px">Import mice</h1>
+      <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:14px">Upload a <b>CSV</b> or <b>Excel (.xlsx)</b> export of your colony → map the columns → preview → bulk-import. Got a <b>PDF</b>? Send it to Leo to extract into a CSV first.</div>
+      <input type="file" id="impFile" accept=".csv,.xlsx,.xls" class="in" style="max-width:360px">
+      <div id="impStep" style="margin-top:14px"></div>
     </div>
   </div>
 
@@ -393,7 +404,7 @@ $('logout').onclick=()=>{ localStorage.removeItem('mc:user'); USER=null; showLog
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>switchTab(t.dataset.tab));
 function switchTab(name){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
-  ['colony','mine','add','people','requests'].forEach(n=>$('tab-'+n).classList.toggle('hidden',n!==name));
+  ['colony','mine','add','import','people','requests'].forEach(n=>$('tab-'+n).classList.toggle('hidden',n!==name));
   if(name==='people') renderPeople();
   if(name==='requests') renderRequests();
   if(name==='mine') renderMine();
@@ -955,6 +966,133 @@ window.__cohort={
     }catch(e){ toast('Delete failed: '+e.message); } }
 };
 $('cohortOverlay').addEventListener('mousedown',e=>{ if(e.target===$('cohortOverlay')) __cohort.close(); });
+
+// ---------- import (CSV / Excel) ----------
+const IMP_FIELDS=[['','— ignore —'],['tag_id','Mouse #'],['sex','Sex'],['cohort','Cohort'],['genotype_label','Genotype'],['dob','DOB (date)'],['age','Age (number)'],['status','Status'],['owner','Owner (name)'],['facility','Facility'],['room','Room'],['rack','Rack'],['rack_row','Row'],['rack_col','Col'],['experiments','Experiments'],['strain_background','Strain'],['date_of_death','Date of death'],['notes','Notes']];
+let IMP={headers:[],data:[],map:[],file:''};
+function parseCSV(t){ const rows=[]; let row=[],cur='',q=false;
+  for(let i=0;i<t.length;i++){ const c=t[i];
+    if(q){ if(c==='"'){ if(t[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=c; }
+    else if(c==='"')q=true; else if(c===','){row.push(cur);cur='';} else if(c==='\n'){row.push(cur);rows.push(row);row=[];cur='';} else if(c!=='\r')cur+=c; }
+  if(cur!==''||row.length){ row.push(cur); rows.push(row); }
+  return rows;
+}
+function impGuess(h){ h=(h||'').toLowerCase().trim();
+  if(/geno/.test(h))return 'genotype_label';
+  if(/tag|mouse\s*#|mouse\s*no|mouse\s*num|ear|^id$|number|^#/.test(h))return 'tag_id';
+  if(/^sex$|gender/.test(h))return 'sex';
+  if(/cohort|^line$/.test(h))return 'cohort';
+  if(/dob|birth/.test(h))return 'dob';
+  if(/\bage\b/.test(h))return 'age';
+  if(/status|health/.test(h))return 'status';
+  if(/owner|responsible|investigator|^pi$|^user$/.test(h))return 'owner';
+  if(/facility/.test(h))return 'facility';
+  if(/room/.test(h))return 'room';
+  if(/rack/.test(h))return 'rack';
+  if(/\brow\b/.test(h))return 'rack_row';
+  if(/\bcol/.test(h))return 'rack_col';
+  if(/experiment|assay|paradigm/.test(h))return 'experiments';
+  if(/strain|background/.test(h))return 'strain_background';
+  if(/death|sacrific|euth/.test(h))return 'date_of_death';
+  if(/note|comment|remark/.test(h))return 'notes';
+  return '';
+}
+function impParseDate(s){ s=(s||'').trim(); if(!s)return null;
+  if(/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)){ const p=s.split('-'); return `${p[0]}-${p[1].padStart(2,'0')}-${p[2].padStart(2,'0')}`; }
+  const m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/); // M/D/Y (US)
+  if(m){ let y=m[3]; if(y.length===2)y='20'+y; return `${y}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`; }
+  const d=new Date(s); return isNaN(d.getTime())?null:localDate(d);
+}
+function impSex(s){ s=(s||'').trim().toLowerCase(); if(s==='m'||s==='male')return 'M'; if(s==='f'||s==='female')return 'F'; return s?'U':null; }
+function impStatus(s){ s=(s||'').trim().toLowerCase(); if(!s)return 'healthy'; if(s==='alive')return 'healthy'; if(STATUSES.indexOf(s)>=0)return s;
+  if(/sacrific/.test(s))return 'sacrificed'; if(/dead|decease/.test(s))return 'dead'; if(/disease|sick|ill/.test(s))return 'diseased'; if(/transfer/.test(s))return 'transferred'; return 'unknown'; }
+function impOwner(s){ s=(s||'').trim().toLowerCase(); if(!s)return null; const u=USERS.find(u=>u.full_name.toLowerCase()===s||u.full_name.toLowerCase().split(' ')[0]===s); return u?u.id:null; }
+function impLoadSheetJS(){ if(window.XLSX)return Promise.resolve(); return new Promise((res,rej)=>{ const s=document.createElement('script');
+  s.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'; s.onload=res; s.onerror=()=>rej(new Error('Could not load the Excel parser (offline?). Save the file as CSV and retry.')); document.head.appendChild(s); }); }
+$('impFile').onchange=async(e)=>{ const f=e.target.files[0]; if(!f)return; IMP.file=f.name; $('impStep').innerHTML='<div class="sub" style="color:var(--muted)">Reading…</div>';
+  try{
+    let arr;
+    if(/\.xlsx?$/i.test(f.name)){ await impLoadSheetJS(); const wb=XLSX.read(await f.arrayBuffer(),{type:'array'}); arr=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:false,defval:''}); }
+    else arr=parseCSV(await f.text());
+    arr=(arr||[]).filter(r=>r&&r.some(x=>String(x==null?'':x).trim()!==''));
+    if(arr.length<2){ $('impStep').innerHTML='<div class="err">Need a header row plus at least one data row.</div>'; return; }
+    IMP.headers=arr[0].map(x=>String(x==null?'':x).trim());
+    IMP.data=arr.slice(1).map(r=>IMP.headers.map((_,i)=>String(r[i]==null?'':r[i])));
+    IMP.map=IMP.headers.map(impGuess);
+    impRenderMap();
+  }catch(err){ $('impStep').innerHTML=`<div class="err">Couldn't read file: ${esc(err.message)}</div>`; }
+};
+function impRenderMap(){
+  const opts=sel=>IMP_FIELDS.map(f=>`<option value="${f[0]}"${f[0]===sel?' selected':''}>${esc(f[1])}</option>`).join('');
+  $('impStep').innerHTML=`
+    <div class="section-h">Map columns · ${IMP.data.length} rows from ${esc(IMP.file)}</div>
+    <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:8px">Match each spreadsheet column to a field (auto-guessed). Anything left as “ignore” is skipped.</div>
+    <div class="grid2">${IMP.headers.map((h,i)=>`<div class="field"><label>${esc(h||'(column '+(i+1)+')')}</label><select class="in imp-map" data-i="${i}">${opts(IMP.map[i])}</select></div>`).join('')}</div>
+    <div class="section-h">Defaults</div>
+    <div class="grid3">
+      <div class="field"><label>Default cohort (if blank)</label><select class="in" id="imp_cohort"><option value="">—</option>${COHORTS.map(c=>`<option>${esc(c)}</option>`).join('')}</select></div>
+      <div class="field"><label>Default owner (if unmatched)</label><select class="in" id="imp_owner"><option value="">—</option>${USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('')}</select></div>
+      <div class="field"><label>Age unit (if using Age)</label><select class="in" id="imp_ageunit"><option value="weeks">weeks</option><option value="months">months</option></select></div>
+    </div>
+    <div class="modal-actions"><button class="btn p" id="impPreview">Preview →</button></div>`;
+  $('impStep').querySelectorAll('.imp-map').forEach(s=>s.onchange=()=>{ IMP.map[+s.dataset.i]=s.value; });
+  $('impPreview').onclick=impDoPreview;
+}
+function impBuild(){
+  const idx={}; IMP_FIELDS.forEach(f=>{ if(f[0])idx[f[0]]=IMP.map.indexOf(f[0]); });
+  const get=(r,f)=>idx[f]>=0?(r[idx[f]]||'').trim():'';
+  const dcohort=$('imp_cohort').value, downer=$('imp_owner').value, aunit=$('imp_ageunit').value;
+  const today=todayStr(), existing=IMP._existingTags||new Set(), seen=new Set();
+  return IMP.data.map((r,ri)=>{
+    const warn=[];
+    const sex=impSex(get(r,'sex'));
+    let dob=impParseDate(get(r,'dob')), dobEst=false;
+    if(!dob){ const a=parseFloat(get(r,'age')); if(a>0){ dob=ageToDob(a,aunit); dobEst=true; } }
+    const ownerText=get(r,'owner'); const matched=impOwner(ownerText); const owner=matched||downer||null;
+    if(ownerText && !matched) warn.push(`owner “${ownerText}” not matched`+(downer?' → default':''));
+    const tag=get(r,'tag_id')||null;
+    if(tag){ if(seen.has(tag))warn.push('duplicate # in file'); else seen.add(tag); if(existing.has(tag))warn.push('# already in DB'); }
+    const loc={facility:get(r,'facility')||null,room:get(r,'room')||null,rack:get(r,'rack')||null,rack_row:get(r,'rack_row')||null,rack_col:get(r,'rack_col')||null};
+    const row={tag_id:tag, sex, cohort:get(r,'cohort')||dcohort||null, genotype_label:get(r,'genotype_label')||null,
+      dob, dob_estimated:dobEst, status:impStatus(get(r,'status')), responsible_person:owner,
+      facility:loc.facility, room:loc.room, rack:loc.rack, rack_row:loc.rack_row, rack_col:loc.rack_col,
+      current_location:buildLoc(loc)||null, experiments:get(r,'experiments')||null,
+      strain_background:get(r,'strain_background')||null, date_of_death:impParseDate(get(r,'date_of_death')),
+      notes:get(r,'notes')||null, last_verified:today, created_by:USER.id, updated_by:USER.id };
+    return {row,warn,ri};
+  });
+}
+async function impDoPreview(){
+  try{ const r=await api('mice?select=tag_id&tag_id=not.is.null'); IMP._existingTags=new Set((r.data||[]).map(x=>x.tag_id)); }catch(_){ IMP._existingTags=new Set(); }
+  const built=impBuild(); IMP._built=built;
+  const warnN=built.filter(b=>b.warn.length).length, show=built.slice(0,50);
+  $('impStep').innerHTML=`
+    <div class="section-h">Preview · ${built.length} mice${warnN?` · <span style="color:var(--amber)">${warnN} with warnings</span>`:''}</div>
+    <div class="tablewrap"><table><thead><tr><th>#</th><th>Sex</th><th>Cohort</th><th>Genotype</th><th>DOB</th><th>Owner</th><th>Status</th><th>Location</th><th>Warnings</th></tr></thead>
+    <tbody>${show.map(b=>`<tr${b.warn.length?' style="background:rgba(251,191,36,.08)"':''}>
+      <td>${esc(b.row.tag_id||'—')}</td><td>${esc(b.row.sex||'—')}</td><td class="cohort">${esc(b.row.cohort||'—')}</td>
+      <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis">${esc(b.row.genotype_label||'—')}</td>
+      <td>${esc(b.row.dob||'—')}${b.row.dob_estimated?' ~':''}</td><td>${esc(userName(b.row.responsible_person)||'—')}</td>
+      <td><span class="badge b-${esc(b.row.status)}">${esc(b.row.status)}</span></td><td style="max-width:170px;overflow:hidden;text-overflow:ellipsis">${esc(b.row.current_location||'—')}</td>
+      <td style="color:var(--amber);font-size:11px">${esc(b.warn.join('; '))}</td></tr>`).join('')}</tbody></table></div>
+    ${built.length>50?`<div class="sub" style="color:var(--muted);font-size:12px">Showing first 50 of ${built.length}.</div>`:''}
+    <div class="modal-actions"><button class="btn sm" id="impBack">← Back to mapping</button><button class="btn p" id="impGo">Import ${built.length} mice</button></div>
+    <div class="err" id="impErr"></div>`;
+  $('impBack').onclick=impRenderMap;
+  $('impGo').onclick=impDoImport;
+}
+async function impDoImport(){
+  const built=IMP._built||[]; if(!built.length)return;
+  if(!confirm(`Import ${built.length} mice into the colony? You can review or delete this import (one batch) afterward.`))return;
+  const batch_id=crypto.randomUUID(), rows=built.map(b=>Object.assign({batch_id},b.row));
+  $('impGo').disabled=true; $('impErr').textContent='Importing…';
+  try{ let n=0;
+    for(let i=0;i<rows.length;i+=100){ await api('mice',{method:'POST',headers:{Prefer:'return=minimal'},body:rows.slice(i,i+100)}); n=Math.min(i+100,rows.length); $('impErr').textContent=`Imported ${n}/${rows.length}…`; }
+    await audit('mice',null,'IMPORT',null,{source:IMP.file,count:rows.length,batch_id});
+    toast(`Imported ${rows.length} mice`); IMP={headers:[],data:[],map:[],file:''}; $('impFile').value='';
+    $('impStep').innerHTML='<div class="sub" style="color:var(--green)">✓ Imported. Opening the colony…</div>'; switchTab('colony'); page=0; loadColony();
+  }catch(e){ $('impGo').disabled=false; $('impErr').textContent='Import failed after '+e.message; }
+}
 
 // ---------- people ----------
 async function renderPeople(){
