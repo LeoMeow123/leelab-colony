@@ -345,8 +345,8 @@ function cohortOptions(sel){ return '<option value="">—</option>'+COHORTS.map(
 function facilityOptions(sel){ return FACILITIES.map(f=>`<option${f===sel?' selected':''}>${esc(f)}</option>`).join(''); }
 function rangeStr(from,to){ from=(from||'').trim(); to=(to||'').trim(); if(!from&&!to)return null; if(!to||to===from)return from||to; return from+'-'+to; }
 function buildLoc(o){ const p=[]; if(o.facility)p.push(o.facility); if(o.room)p.push('Rm '+o.room); if(o.rack)p.push('Rack '+o.rack);
-  if(o.cage)p.push('Cage '+o.cage);
-  const rc=[o.rack_row&&('r'+o.rack_row),o.rack_col&&('c'+o.rack_col)].filter(Boolean).join('/'); if(rc)p.push(rc); return p.join(' · '); }
+  const rc=[o.rack_row&&('r'+o.rack_row),o.rack_col&&('c'+o.rack_col)].filter(Boolean).join('/'); if(rc)p.push(rc);
+  if(o.cage)p.push('Cage '+o.cage); return p.join(' · '); }
 // Summarize a group's location: same facility/room/rack counts as ONE place; only the cage varies → show "… · Cage H–L". Only truly-different bases show "mixed".
 function cageSummary(cages){ const u=[...new Set(cages.filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true}));
   if(!u.length)return ''; if(u.length===1)return u[0]; if(u.length<=4)return u.join(', '); return u[0]+'–'+u[u.length-1]+' ('+u.length+')'; }
@@ -718,8 +718,8 @@ function fieldsHtml(m){
     <div class="field"><label>Room</label><input class="in" id="e_room" value="${esc(m.room||'')}"></div>
     <div class="field"><label>Rack</label><input class="in" id="e_rack" value="${esc(m.rack||'')}"></div>
     <div class="field"><label>Cage</label><input class="in" id="e_cage" value="${esc(m.cage||'')}"></div>
-    <div class="field"><label>Row (legacy)</label><input class="in" id="e_row" value="${esc(m.rack_row||'')}"></div>
-    <div class="field"><label>Col (legacy)</label><input class="in" id="e_col" value="${esc(m.rack_col||'')}"></div>
+    <div class="field"><label>Row</label><input class="in" id="e_row" value="${esc(m.rack_row||'')}"></div>
+    <div class="field"><label>Col</label><input class="in" id="e_col" value="${esc(m.rack_col||'')}"></div>
   </div>
   <div class="field"><label>Strain</label><input class="in" id="e_geno" value="${esc(m.genotype_label||'')}" placeholder="e.g. C57BL/6, hMAP"></div>
   <div class="field"><label>Experiments (comma-separated)</label><input class="in" id="e_exp" value="${esc(m.experiments||'')}" placeholder="e.g. T-maze, Social, HCM">${expChips('e_exp')}</div>
@@ -817,7 +817,10 @@ function renderCohortForm(){
       <div class="field"><label>Facility *</label><select class="in" id="c_fac">${facilityOptions('CRAF')}</select></div>
       <div class="field"><label>Room</label><input class="in" id="c_room"></div>
       <div class="field"><label>Rack</label><input class="in" id="c_rack"></div>
+      <div class="field"><label>Row</label><input class="in" id="c_row" placeholder="e.g. 5"></div>
+      <div class="field"><label>Col</label><input class="in" id="c_col" placeholder="e.g. H-L"></div>
     </div>
+    <div class="sub" style="color:var(--muted);font-size:12px">Facility → Room → Rack → Row/Col is the rack position (shared by the cohort). The <b>cage number</b> is set per-cage below.</div>
     <div class="section-h">Cages</div>
     <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:8px">One row per cage (usually single-sex). Enter the cage's mouse numbers (a list or a range like 4471-4478) and the count fills in — or leave numbers blank and just type how many mice are in the cage. Cage # defaults to 1, 2, 3… — change it if your cages are labeled otherwise. All of this is editable later.</div>
     <div class="field" style="max-width:170px"><label># of cages</label><input class="in" id="c_ncages" type="number" min="1" value="1"></div>
@@ -841,12 +844,12 @@ $('addSave').onclick=async()=>{
   let dob=null, dobEst=false; const basis=$('c_agebasis').value;
   if(basis==='dob'){ dob=g('c_dob'); if(!dob){ $('addErr').textContent='Enter a DOB, or switch to “Estimate from age” / “Unknown (add later)”.'; return; } }
   else if(basis==='age'){ const a=parseFloat($('c_age').value); if(!(a>0)){ $('addErr').textContent='Enter a rough age, or choose “Unknown (add later)”.'; return; } dob=ageToDob(a,$('c_ageunit').value); dobEst=true; }
-  const baseLoc={facility:g('c_fac'),room:g('c_room'),rack:g('c_rack')};
+  const baseLoc={facility:g('c_fac'),room:g('c_room'),rack:g('c_rack'),rack_row:g('c_row'),rack_col:g('c_col')};
   const batch_id=crypto.randomUUID(), today=todayStr();
   const geno=g('c_geno'), notes=g('c_notes'), exp=g('c_exp');
   const common={cohort, genotype_label:geno, dob, dob_estimated:dobEst, responsible_person:owner, status:'healthy',
     experiments:exp, batch_id, notes, created_by:USER.id, updated_by:USER.id, last_verified:today,
-    rack_row:null, rack_col:null, n_cages:CAGES.length};
+    rack_row:baseLoc.rack_row, rack_col:baseLoc.rack_col, n_cages:CAGES.length};
   const rows=[], allNums=[];
   for(let i=0;i<CAGES.length;i++){ const c=CAGES[i], cageNo=(c.cage||'').trim()||String(i+1);
     let nums=[]; if((c.nums||'').trim()){ nums=parseNums(c.nums);
