@@ -278,7 +278,9 @@ function buildLoc(o){ const p=[]; if(o.facility)p.push(o.facility); if(o.room)p.
 function localDate(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; } // local calendar date (toISOString would give UTC → off-by-one in the PT evening)
 function todayStr(){ return localDate(new Date()); }
 function ageToDob(n,unit){ const d=new Date(); d.setDate(d.getDate()-(unit==='months'?Math.round(n*30.44):Math.round(n*7))); return localDate(d); }
-function parseNums(s){ const out=[]; s.split(/[\s,]+/).filter(Boolean).forEach(tok=>{ const m=tok.match(/^(\d+)-(\d+)$/);
+function parseNums(s){ const out=[];
+  s=String(s).replace(/[‐-―]/g,'-').replace(/\s+to\s+/gi,'-').replace(/\s*-\s*/g,'-'); // tolerate en/em dashes, "to", and spaced hyphens in ranges
+  s.split(/[\s,]+/).filter(Boolean).forEach(tok=>{ const m=tok.match(/^(\d+)-(\d+)$/);
   if(m){ let a=+m[1],b=+m[2]; if(a>b){ const t=a;a=b;b=t; } if(b-a<1000) for(let x=a;x<=b;x++)out.push(String(x)); else out.push(tok); } else out.push(tok); }); return out; }
 
 // ---------- audit ----------
@@ -576,7 +578,7 @@ function renderCohortForm(){
       <div class="field"><label># cages</label><input class="in" id="c_ncages" type="number" min="0"></div>
     </div>
     <div class="section-h">Mouse numbers</div>
-    <div class="field"><label>Numbers (optional — blank = pending; comma/space/newline, ranges like 4471-4478 ok)</label><textarea class="in" id="c_nums" rows="2" placeholder="blank = pending, ear-tag later"></textarea></div>
+    <div class="field"><label>Numbers (optional — blank = pending; separate with comma/space/newline; ranges like 4471-4486 ok. Count must match the total.)</label><textarea class="in" id="c_nums" rows="2" placeholder="blank = pending, ear-tag later"></textarea></div>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" id="c_eartag" checked> If pending, file an ear-tag request for this cohort</label>
     <div class="field" style="margin-top:8px"><label>Notes</label><input class="in" id="c_notes"></div>`;
   $('c_agebasis').onchange=()=>{ const v=$('c_agebasis').value;
@@ -605,7 +607,7 @@ $('addSave').onclick=async()=>{
     nums=parseNums(numsRaw);
     const bad=nums.find(n=>/-/.test(n)); if(bad){ $('addErr').textContent=`“${bad}” isn't a valid number or range (range span must be < 1000).`; return; }
     const dup=nums.find((n,i)=>nums.indexOf(n)!==i); if(dup){ $('addErr').textContent=`Number ${dup} appears more than once.`; return; }
-    if(nums.length!==total){ $('addErr').textContent=`You entered ${nums.length} numbers for ${total} mice.`; return; }
+    if(nums.length!==total){ $('addErr').textContent=`You entered ${nums.length} number${nums.length===1?'':'s'} but this cohort has ${total} mice. Enter one per mouse, a range like 4471-${4470+total}, or leave the box blank for pending numbers.`; return; }
   }
   const batch_id=crypto.randomUUID();
   const today=todayStr();
