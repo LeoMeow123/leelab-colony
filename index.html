@@ -1368,7 +1368,7 @@ window.__rq={
       if(notif.length){
         let auto=null;
         if(newId){ try{ auto=await sendRequestEmail(newId, notif, realOwner); }catch(_){ auto=null; } }
-        if(auto){ const sent=(auto.sent||[]).length, miss=auto.missing||[];
+        if(auto){ const sent=auto.sent||0, miss=auto.missing||[];
           notifyMsg = sent? ' · emailed '+sent+' '+(sent>1?'people':'person') : ' · no email on file for the selected people';
           if(miss.length) notifyMsg+=' (no email yet: '+miss.join(', ')+')';
         } else { // server not set up / failed → open a pre-filled draft instead

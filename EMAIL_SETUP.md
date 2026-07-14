@@ -44,6 +44,7 @@ Dashboard → **Edge Functions → Manage secrets** (or `supabase secrets set �
 - `RESEND_API_KEY` = your `re_...` key  **(required)**
 - `EMAIL_FROM` = `Lee Lab Colony <colony@kuofenleelab.com>` (or `onboarding@resend.dev` for the test)
 - `APP_URL` = `https://leomeow123.github.io/leelab-colony/` (optional link in the email)
+- `ALLOWED_APIKEY` = your publishable key `sb_publishable_...` (optional but recommended) — if set, the function rejects callers that don't send it, so the endpoint isn't openly invokable. The app already sends it.
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are provided to the function
 automatically — you don't set those.

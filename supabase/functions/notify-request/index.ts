@@ -24,8 +24,12 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
 
+  // Optional shared-key gate: if ALLOWED_APIKEY is set, require it (the client sends the publishable key as `apikey`).
+  const allowedKey = Deno.env.get("ALLOWED_APIKEY");
+  if (allowedKey && (req.headers.get("apikey") || "") !== allowedKey) return json({ error: "unauthorized" }, 401);
+
   try {
-    const { requestId, roles, ownerId } = await req.json().catch(() => ({}));
+    const { requestId, roles } = await req.json().catch(() => ({}));
     if (!requestId || !Array.isArray(roles) || roles.length === 0)
       return json({ error: "requestId and non-empty roles[] required" }, 400);
 
@@ -40,21 +44,26 @@ Deno.serve(async (req) => {
     const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
     const { data: r, error: e1 } = await db.from("requests")
-      .select("subject, body, needed_sex, needed_cohort, quantity, status, requester_id")
+      .select("subject, body, needed_sex, needed_cohort, quantity, status, requester_id, assignee_id, created_at")
       .eq("id", requestId).single();
     if (e1 || !r) return json({ error: "request not found" }, 404);
 
-    // Resolve recipients strictly from app_users, deduped.
+    // Replay guard: only notify freshly-created requests (blocks looping an old, known requestId).
+    if (r.created_at && Date.now() - new Date(r.created_at).getTime() > 15 * 60 * 1000)
+      return json({ error: "request too old to notify" }, 409);
+
+    // Resolve recipients strictly from app_users, deduped. Owner is derived from the request's
+    // assignee (server-side) — never a client-supplied id — so a caller can't target arbitrary people.
     const emails = new Set<string>();
-    const missing: string[] = [];
+    const missing = new Set<string>();
     const EMAIL_RE = /^[^\s@,;"<>]+@[^\s@,;"<>]+\.[^\s@,;"<>]+$/;
     const addUser = (u: { full_name?: string; email?: string | null } | null | undefined) => {
       if (!u) return;
       const e = (u.email || "").trim();
-      if (e && EMAIL_RE.test(e)) emails.add(e); else missing.push(u.full_name || "someone");
+      if (e && EMAIL_RE.test(e)) emails.add(e); else missing.add(u.full_name || "someone");
     };
-    if (roles.includes("owner") && ownerId) {
-      const { data } = await db.from("app_users").select("full_name,email").eq("id", ownerId).maybeSingle();
+    if (roles.includes("owner") && r.status === "open" && r.assignee_id) {
+      const { data } = await db.from("app_users").select("full_name,email").eq("id", r.assignee_id).maybeSingle();
       addUser(data);
     }
     if (roles.includes("managers")) {
@@ -66,7 +75,7 @@ Deno.serve(async (req) => {
       (data || []).forEach(addUser);
     }
     const to = [...emails];
-    if (to.length === 0) return json({ sent: [], missing });
+    if (to.length === 0) return json({ sent: 0, missing: [...missing] });
 
     let by = "someone";
     if (r.requester_id) {
@@ -91,7 +100,7 @@ Filed by ${by}.${APP_URL ? "\n\nOpen the colony app: " + APP_URL : ""}`;
       body: JSON.stringify({ from: EMAIL_FROM, to, subject, text }),
     });
     if (!send.ok) return json({ error: "resend: " + (await send.text()) }, 502);
-    return json({ sent: to, missing });
+    return json({ sent: to.length, missing: [...missing] }); // counts/names only — don't echo addresses
   } catch (e) {
     return json({ error: String(e) }, 500);
   }
