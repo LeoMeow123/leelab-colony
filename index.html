@@ -955,6 +955,13 @@ window.__cohort={
           <input class="in cm_cage" data-id="${esc(m.id)}" data-orig="${esc(m.cage||'')}" value="${esc(m.cage||'')}" placeholder="cage" style="width:90px">
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--red)"><input type="checkbox" class="cm_del" data-id="${esc(m.id)}"> ✕</label></div>`).join('')}</div>
       </details>
+      <div class="section-h">Add mice to this cohort</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <input class="in" id="cm_add_n" type="number" min="0" placeholder="# to add" style="width:88px">
+        <select class="in" id="cm_add_sex" style="width:72px">${['M','F','U'].map(s=>`<option${g.sex===s?' selected':''}>${s}</option>`).join('')}</select>
+        <input class="in" id="cm_add_cage" placeholder="cage" value="${esc(g.cage||'')}" style="width:88px">
+        <input class="in" id="cm_add_nums" placeholder="mouse #s (optional, e.g. 4479-4480)" style="flex:1;min-width:150px">
+      </div>
       <div class="modal-actions"><button class="btn sm" onclick="__cohort.close()">Cancel</button><button class="btn p" onclick="__cohort.save(${gi})">Apply</button></div>
       <div class="err" id="cm_err"></div>`;
     $('cohortOverlay').classList.add('open'); },
@@ -983,9 +990,15 @@ window.__cohort={
     cageEdits.forEach(e=>perMouse.set(e.id,Object.assign(perMouse.get(e.id)||{},{cage:e.cage})));
     delIds.forEach(id=>perMouse.delete(id)); // don't patch mice we're deleting
     const addExp=v('cm_exp'); const newTags=addExp?addExp.split(',').map(s=>s.trim()).filter(Boolean):[];
-    if(!uniformChanged && !perMouse.size && !newTags.length && !delIds.length){ $('cm_err').textContent='Change at least one field.'; return; }
-    // reject a mouse number used twice within the cohort after the edits (ignoring removed mice)
-    const finalTags=ms.filter(m=>!delSet.has(m.id)).map(m=>{ const e=numEdits.find(x=>x.id===m.id); return e?e.tag:(m.tag_id||null); }).filter(Boolean);
+    // add-mice inputs
+    const addN=Math.max(0,parseInt($('cm_add_n').value,10)||0); let addNums=[];
+    if(addN>0){ const raw=($('cm_add_nums').value||'').trim();
+      if(raw){ addNums=parseNums(raw);
+        const bad=addNums.find(n=>/-/.test(n)); if(bad){ $('cm_err').textContent=`Add: “${bad}” isn't a valid number or range.`; return; }
+        if(addNums.length>addN){ $('cm_err').textContent=`Add: ${addNums.length} numbers for only ${addN} new mice.`; return; } } }
+    if(!uniformChanged && !perMouse.size && !newTags.length && !delIds.length && !addN){ $('cm_err').textContent='Change at least one field.'; return; }
+    // reject a mouse number used twice within the cohort after the edits (ignoring removed mice, including added)
+    const finalTags=ms.filter(m=>!delSet.has(m.id)).map(m=>{ const e=numEdits.find(x=>x.id===m.id); return e?e.tag:(m.tag_id||null); }).filter(Boolean).concat(addNums);
     const dupTag=finalTags.find((t,i)=>finalTags.indexOf(t)!==i);
     if(dupTag){ $('cm_err').textContent=`Number ${dupTag} would be used more than once in this cohort.`; return; }
     if(locChanged) ms.forEach(m=>{ if(!delSet.has(m.id) && !perMouse.has(m.id))perMouse.set(m.id,{}); }); // every kept mouse needs its current_location rebuilt (with its own cage)
@@ -1006,7 +1019,17 @@ window.__cohort={
             p.current_location=buildLoc(base)||null; }
           await api(`mice?id=eq.${id}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:p}); }
         await audit('mice',null,'COHORT_RENUMBER',{batch_id:g.batch_id,count:perMouse.size},null); }
-      toast('Cohort updated'+(delIds.length?` · removed ${delIds.length}`:'')); __cohort.close(); renderMine(); loadColony();
+      if(addN>0){ const addCage=($('cm_add_cage').value||'').trim()||null, addSex=$('cm_add_sex').value;
+        const pv=(k)=> (k in patch)?patch[k]:g[k]; // effective value = this-save's change, else the cohort's current value
+        const base={cohort:pv('cohort'), genotype_label:pv('genotype_label'), dob:pv('dob'), dob_estimated:pv('dob_estimated'),
+          responsible_person:pv('responsible_person'), status:pv('status'), experiments:g.experiments,
+          facility:pv('facility'), room:pv('room'), rack:pv('rack'), rack_row:pv('rack_row'), rack_col:pv('rack_col'),
+          cage:addCage, batch_id:g.batch_id, n_cages:g.n_cages, created_by:USER.id, updated_by:USER.id, last_verified:todayStr()};
+        const cl=buildLoc({facility:base.facility,room:base.room,rack:base.rack,cage:addCage,rack_row:base.rack_row,rack_col:base.rack_col})||null;
+        const newRows=[]; for(let j=0;j<addN;j++) newRows.push(Object.assign({tag_id:addNums[j]||null, sex:addSex, current_location:cl}, base));
+        await api('mice',{method:'POST',headers:{Prefer:'return=minimal'},body:newRows});
+        await audit('mice',null,'COHORT_ADD',{batch_id:g.batch_id,count:addN,sex:addSex,cage:addCage},null); }
+      toast('Cohort updated'+(delIds.length?` · removed ${delIds.length}`:'')+(addN?` · added ${addN}`:'')); __cohort.close(); renderMine(); loadColony();
     }catch(e){ $('cm_err').textContent=e.message; } },
   del:async(gi)=>{ const ms=MINE_GROUPS[gi]; if(!ms)return; const ids=ms.map(m=>m.id);
     if(!confirm(`Delete this whole cohort — ${ids.length} mice (${ms[0].cohort} ${ms[0].genotype_label||''})? This can't be undone.`))return;
