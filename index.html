@@ -1020,18 +1020,44 @@ async function impFetchTags(){ const tags=new Set(); let from=0; const size=1000
 function impOwner(s){ s=(s||'').trim().toLowerCase(); if(!s)return null; const u=USERS.find(u=>u.full_name.toLowerCase()===s||u.full_name.toLowerCase().split(' ')[0]===s); return u?u.id:null; }
 function impLoadSheetJS(){ if(window.XLSX)return Promise.resolve(); return new Promise((res,rej)=>{ const s=document.createElement('script');
   s.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'; s.onload=res; s.onerror=()=>rej(new Error('Could not load the Excel parser (offline?). Save the file as CSV and retry.')); document.head.appendChild(s); }); }
+// ---- "can't read this file" → notify + email admin + log one help request ----
+const ADMIN_EMAIL='leli@salk.edu';
+let IMP_REPORTED=new Set(); // files already reported this session (email/query only once each)
+function impAdminId(){ const u=USERS.find(u=>/leo/i.test(u.full_name)); return u?u.id:null; }
+function impHelp(reason){ const file=IMP.file||'(file)';
+  $('impStep').innerHTML=`
+    <div class="err" style="margin-bottom:10px">⚠ Couldn't read <b>${esc(file)}</b>. ${esc(reason)}</div>
+    <div class="sub" style="color:var(--muted);font-size:13px;margin-bottom:10px">This file may have an unusual layout (a title row above the header, merged cells, a “;”/tab delimiter, or multiple sheets). Email it to ${esc(ADMIN_EMAIL)} to have it reshaped into an importable CSV — a help request is logged too (only once per file).</div>
+    <button class="btn p" id="impHelpBtn">✉ Email the file to Leo &amp; log a help request</button>
+    <div class="sub" id="impHelpNote" style="color:var(--muted);font-size:12px;margin-top:8px"></div>`;
+  $('impHelpBtn').onclick=()=>impSendHelp(reason);
+}
+async function impSendHelp(reason){ const file=IMP.file||'(file)', subject='[import-help] '+file;
+  const note=m=>{ const el=$('impHelpNote'); if(el)el.textContent=m; };
+  if(IMP_REPORTED.has(file)){ note('Already reported — opening the email window; attach the file and send.'); openImpMail(file,reason); return; }
+  try{ const ex=(await api('requests?select=subject&status=eq.open&subject=ilike.'+encodeURIComponent('%import-help%'))).data||[];
+    if(ex.some(x=>x.subject===subject)){ IMP_REPORTED.add(file); note('A help request for this file is already open — not emailing again.'); return; } }catch(_){}
+  try{ await api('requests',{method:'POST',body:[{requester_id:USER.id, assignee_id:impAdminId(), status:'open', priority:1,
+    subject, body:`The importer couldn't read “${file}”. Reason: ${reason}. File emailed to ${ADMIN_EMAIL} to reshape into an importable CSV.`}]}); }
+  catch(e){ note('Could not log the request: '+e.message); }
+  IMP_REPORTED.add(file); openImpMail(file,reason); toast('Help request logged for Leo'); note('Logged. In the email window, attach “'+file+'” and send.'); }
+function openImpMail(file,reason){
+  const body=`Hi Leo,\n\nThe colony importer couldn't read this file:\n  File: ${file}\n  Issue: ${reason}\n\nPlease attach the file to this email before sending (the importer can't attach it for you).\n\nThanks`;
+  window.location.href='mailto:'+ADMIN_EMAIL+'?subject='+encodeURIComponent('Colony import help: '+file)+'&body='+encodeURIComponent(body); }
+window.__impHelp=()=>impSendHelp('File parsed but no columns mapped to real fields.');
 $('impFile').onchange=async(e)=>{ const f=e.target.files[0]; if(!f)return; IMP.file=f.name; $('impStep').innerHTML='<div class="sub" style="color:var(--muted)">Reading…</div>';
   try{
     let arr;
     if(/\.xlsx?$/i.test(f.name)){ await impLoadSheetJS(); const wb=XLSX.read(await f.arrayBuffer(),{type:'array'}); arr=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:false,defval:''}); }
     else arr=parseCSV(await f.text());
     arr=(arr||[]).filter(r=>r&&r.some(x=>String(x==null?'':x).trim()!==''));
-    if(arr.length<2){ $('impStep').innerHTML='<div class="err">Need a header row plus at least one data row.</div>'; return; }
+    if(arr.length<2){ impHelp('Need a header row plus at least one data row.'); return; }
     IMP.headers=arr[0].map(x=>String(x==null?'':x).trim());
     IMP.data=arr.slice(1).map(r=>IMP.headers.map((_,i)=>String(r[i]==null?'':r[i])));
+    if(IMP.headers.length<=1){ impHelp('The columns didn’t split — the file may use “;” or a tab instead of commas, or isn’t a table.'); return; }
     IMP.map=IMP.headers.map(impGuess);
     impRenderMap();
-  }catch(err){ $('impStep').innerHTML=`<div class="err">Couldn't read file: ${esc(err.message)}</div>`; }
+  }catch(err){ impHelp(err.message||'Unreadable file.'); }
 };
 function impRenderMap(){
   const opts=sel=>IMP_FIELDS.map(f=>`<option value="${f[0]}"${f[0]===sel?' selected':''}>${esc(f[1])}</option>`).join('');
@@ -1090,7 +1116,7 @@ async function impDoPreview(){
   $('impStep').innerHTML=`
     <div class="section-h">Preview · ${built.length} mice${warnN?` · <span style="color:var(--amber)">${warnN} with warnings</span>`:''}</div>
     ${dupMap.length?`<div class="err">⚠ These fields are mapped to more than one column; only the first is used: ${esc(dupMap.join(', '))}.</div>`:''}
-    ${allEmpty?`<div class="err">Nothing to import — no columns are mapped to real fields. Go back and map at least Mouse # / Sex / Genotype / DOB.</div>`:''}
+    ${allEmpty?`<div class="err">Nothing to import — no columns are mapped to real fields. Go back and map at least Mouse # / Sex / Genotype / DOB, or <button class="btn sm" onclick="__impHelp()">✉ email Leo for help</button></div>`:''}
     <div class="tablewrap"><table><thead><tr><th>#</th><th>Sex</th><th>Cohort</th><th>Genotype</th><th>DOB</th><th>Owner</th><th>Status</th><th>Location</th><th>Warnings</th></tr></thead>
     <tbody>${show.map(b=>`<tr${b.warn.length?' style="background:rgba(251,191,36,.08)"':''}>
       <td>${esc(b.row.tag_id||'—')}</td><td>${esc(b.row.sex||'—')}</td><td class="cohort">${esc(b.row.cohort||'—')}</td>
