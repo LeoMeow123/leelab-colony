@@ -90,7 +90,7 @@
   .badge{font-size:10px;padding:2px 7px;border-radius:9px;font-weight:700}
   .b-healthy,.b-alive{background:rgba(52,211,153,.15);color:var(--green)}
   .b-diseased{background:rgba(251,191,36,.18);color:var(--amber)}
-  .b-dead,.b-sacrificed{background:rgba(122,127,148,.2);color:var(--muted)}
+  .b-dead,.b-sacrificed,.b-unknown{background:rgba(122,127,148,.2);color:var(--muted)}
   .b-transferred{background:rgba(79,156,249,.15);color:var(--accent)}
   .b-stale{background:rgba(251,191,36,.15);color:var(--amber);margin-left:5px}
   .cohort{font-weight:600}
@@ -409,6 +409,7 @@ const STATUSES=['healthy','diseased','sacrificed','dead','transferred','unknown'
 const EXPERIMENTS=['T-maze','Social','HCM','Open field','Barnes maze','Fear conditioning','Rotarod','Elevated plus maze','Y-maze','Novel object'];
 function expChips(inputId){ return `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px">${EXPERIMENTS.map(e=>`<button type="button" class="btn sm" style="font-size:11px;padding:2px 7px" onclick="expAdd('${inputId}','${esc(e)}')">+ ${esc(e)}</button>`).join('')}</div>`; }
 function expAdd(inputId,tag){ const el=$(inputId); const cur=el.value.split(',').map(s=>s.trim()).filter(Boolean); if(!cur.some(x=>x.toLowerCase()===tag.toLowerCase()))cur.push(tag); el.value=cur.join(', '); el.focus(); }
+function dedupCI(arr){ const seen=new Set(), out=[]; for(const x of arr){ const k=x.toLowerCase(); if(!seen.has(k)){ seen.add(k); out.push(x); } } return out; } // case-insensitive dedup, keeps first casing
 window.expAdd=expAdd;
 let sortKey='age_months', sortDir='asc', page=0, pageSize=50, total=0;
 let SEL=new Set(); // selected mouse ids for batch actions (persists across pages/filters until cleared)
@@ -854,7 +855,7 @@ async function renderMine(){
       const owners=[...new Set(ms.map(m=>m.owner_name).filter(Boolean))];
       const locs=[...new Set(ms.map(m=>m.current_location).filter(Boolean))];
       const pend=ms.filter(m=>!m.tag_id).length;
-      const exps=[...new Set(ms.flatMap(m=>(m.experiments||'').split(',').map(s=>s.trim()).filter(Boolean)))];
+      const exps=dedupCI(ms.flatMap(m=>(m.experiments||'').split(',').map(s=>s.trim()).filter(Boolean)));
       const stat=[...new Set(ms.map(m=>m.status))];
       html+=`<div class="card" style="margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
@@ -927,7 +928,7 @@ window.__cohort={
     if(fac||room||rack||row||col){ const loc={facility:fac||g.facility,room:room||g.room,rack:rack||g.rack,rack_row:row||g.rack_row,rack_col:col||g.rack_col};
       Object.assign(patch,{facility:loc.facility,room:loc.room,rack:loc.rack,rack_row:loc.rack_row,rack_col:loc.rack_col,current_location:buildLoc(loc)||null}); }
     const uniformChanged=Object.keys(patch).length>2;
-    const numEdits=[...$('cohortModal').querySelectorAll('.cm_num')].filter(el=>el.value.trim()!==el.dataset.orig).map(el=>({id:el.dataset.id, tag:el.value.trim()||null}));
+    const numEdits=[...$('cohortModal').querySelectorAll('.cm_num')].filter(el=>el.value.trim()!==(el.dataset.orig||'').trim()).map(el=>({id:el.dataset.id, tag:el.value.trim()||null}));
     const addExp=v('cm_exp'); const newTags=addExp?addExp.split(',').map(s=>s.trim()).filter(Boolean):[];
     if(!uniformChanged && !numEdits.length && !newTags.length){ $('cm_err').textContent='Change at least one field.'; return; }
     // reject a mouse number used twice within the cohort after the edits
@@ -938,7 +939,7 @@ window.__cohort={
       if(uniformChanged){ const done=await inChunks(ids,'PATCH',{Prefer:'return=representation'},patch);
         await audit('mice',null,'COHORT_MODIFY',{batch_id:g.batch_id,count:done.length},patch); }
       if(newTags.length){ const byExp=new Map(); ms.forEach(m=>{ const cur=m.experiments||''; if(!byExp.has(cur))byExp.set(cur,[]); byExp.get(cur).push(m.id); });
-        for(const pair of byExp){ const merged=[...new Set(pair[0].split(',').map(s=>s.trim()).filter(Boolean).concat(newTags))].join(', ');
+        for(const pair of byExp){ const merged=dedupCI(pair[0].split(',').map(s=>s.trim()).filter(Boolean).concat(newTags)).join(', ');
           await inChunks(pair[1],'PATCH',{Prefer:'return=minimal'},Object.assign({experiments:merged},stamp)); }
         await audit('mice',null,'COHORT_ADD_EXPERIMENTS',{batch_id:g.batch_id,added:newTags.join(', '),count:ids.length},null); }
       if(numEdits.length){ for(const e of numEdits){ await api(`mice?id=eq.${e.id}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:Object.assign({tag_id:e.tag},stamp)}); }
@@ -1087,11 +1088,11 @@ window.__rq={
       const mouseNo=g('q_mouse');
       let hit=null;
       if(mouseNo){
-        hit=(await api('mice?select=id,responsible_person&status=eq.alive&tag_id=eq.'+encodeURIComponent(mouseNo)+'&limit=1')).data;
+        hit=(await api('mice?select=id,responsible_person&status=in.(healthy,diseased)&tag_id=eq.'+encodeURIComponent(mouseNo)+'&limit=1')).data;
         if(hit&&hit[0]){ rec.target_mouse_id=hit[0].id; rec.assignee_id=hit[0].responsible_person||managerId(); rec.status='open'; }
         else { rec.status='routed_to_breeding'; rec.assignee_id=managerId(); }
       } else {
-        let mq='mice?select=id,responsible_person&status=eq.alive&limit=1';
+        let mq='mice?select=id,responsible_person&status=in.(healthy,diseased)&limit=1';
         if(rec.needed_sex)mq+='&sex=eq.'+rec.needed_sex;
         if(rec.needed_cohort)mq+='&cohort=eq.'+encodeURIComponent(rec.needed_cohort);
         hit=(await api(mq)).data;
