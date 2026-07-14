@@ -778,7 +778,8 @@ window.__mc={
 
 // ---------- add cohort (bulk, by cage) ----------
 let CAGES=[];
-function newCage(i){ return {cage:String(i+1), sex:'M', nums:'', count:''}; }
+function nextCageNo(){ return String(Math.max(0,...CAGES.map(c=>parseInt(c.cage,10)||0))+1); } // avoids collisions after removing a middle cage
+function newCage(){ return {cage:nextCageNo(), sex:'M', nums:'', count:''}; }
 function renderCages(){
   $('c_cages').innerHTML=CAGES.map((c,i)=>`<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
       <span style="width:46px;color:var(--muted);font-size:12px">Cage</span>
@@ -790,12 +791,12 @@ function renderCages(){
     </div>`).join('')+`<button type="button" class="btn sm" id="c_addcage">+ Add cage</button>`;
   const nc=$('c_ncages'); if(nc)nc.value=CAGES.length;
   $('c_cages').querySelectorAll('.cg').forEach(el=>el.onchange=()=>{ const i=+el.dataset.i, k=el.dataset.k; CAGES[i][k]=el.value;
-    if(k==='nums'){ const n=parseNums(el.value).filter(x=>/^\d+$/.test(x)).length; if(n>0){ CAGES[i].count=String(n); renderCages(); } } });
-  $('c_cages').querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{ CAGES.splice(+b.dataset.rm,1); if(!CAGES.length)CAGES.push(newCage(0)); renderCages(); });
-  $('c_addcage').onclick=()=>{ CAGES.push(newCage(CAGES.length)); renderCages(); };
+    if(k==='nums'){ const n=parseNums(el.value).filter(x=>/^\d+$/.test(x)).length; const cur=parseInt(CAGES[i].count,10)||0; if(n>cur){ CAGES[i].count=String(n); renderCages(); } } }); // only bump count up, never clobber a larger manual value
+  $('c_cages').querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{ CAGES.splice(+b.dataset.rm,1); if(!CAGES.length)CAGES.push(newCage()); renderCages(); });
+  $('c_addcage').onclick=()=>{ CAGES.push(newCage()); renderCages(); };
 }
 function renderCohortForm(){
-  CAGES=[newCage(0)];
+  CAGES=[newCage()];
   $('cohortForm').innerHTML=`
     <div class="grid3">
       <div class="field"><label>Cohort / genotype *</label><select class="in" id="c_cohort">${cohortOptions('')}</select></div>
@@ -824,7 +825,7 @@ function renderCohortForm(){
     <div class="field" style="margin-top:8px"><label>Notes</label><input class="in" id="c_notes"></div>`;
   renderCages();
   $('c_ncages').onchange=()=>{ let n=parseInt($('c_ncages').value,10); if(!(n>=1))n=1; if(n>200)n=200;
-    while(CAGES.length<n)CAGES.push(newCage(CAGES.length)); if(CAGES.length>n)CAGES.length=n; renderCages(); };
+    while(CAGES.length<n)CAGES.push(newCage()); if(CAGES.length>n)CAGES.length=n; renderCages(); };
   $('c_agebasis').onchange=()=>{ const v=$('c_agebasis').value;
     $('c_dobwrap').classList.toggle('hidden',v!=='dob'); $('c_agewrap').classList.toggle('hidden',v!=='age'); };
 }
@@ -846,7 +847,7 @@ $('addSave').onclick=async()=>{
   const rows=[], allNums=[];
   for(let i=0;i<CAGES.length;i++){ const c=CAGES[i], cageNo=(c.cage||'').trim()||String(i+1);
     let nums=[]; if((c.nums||'').trim()){ nums=parseNums(c.nums);
-      const bad=nums.find(n=>/-/.test(n)); if(bad){ $('addErr').textContent=`Cage ${cageNo}: “${bad}” isn't a valid number or range.`; return; }
+      const bad=nums.find(n=>/-/.test(n)); if(bad){ $('addErr').textContent=`Cage ${cageNo}: “${bad}” isn't a valid number (a range must span fewer than 1000).`; return; }
       const dup=nums.find((n,j)=>nums.indexOf(n)!==j); if(dup){ $('addErr').textContent=`Cage ${cageNo}: ${dup} appears more than once.`; return; } }
     const count=(c.count||'').trim()!==''? Number(c.count) : nums.length;
     if(!Number.isInteger(count)||count<0){ $('addErr').textContent=`Cage ${cageNo}: # mice must be a whole number ≥ 0.`; return; }
@@ -970,8 +971,9 @@ window.__cohort={
     if(v('cm_dob')) patch.dob=v('cm_dob');
     if(v('cm_dobest')) patch.dob_estimated=v('cm_dobest')==='1';
     const fac=v('cm_fac'),room=v('cm_room'),rack=v('cm_rack'),row=v('cm_row'),col=v('cm_col');
-    if(fac||room||rack||row||col){ const loc={facility:fac||g.facility,room:room||g.room,rack:rack||g.rack,rack_row:row||g.rack_row,rack_col:col||g.rack_col};
-      Object.assign(patch,{facility:loc.facility,room:loc.room,rack:loc.rack,rack_row:loc.rack_row,rack_col:loc.rack_col,current_location:buildLoc(loc)||null}); }
+    const locChanged=!!(fac||room||rack||row||col);
+    if(fac)patch.facility=fac; if(room)patch.room=room; if(rack)patch.rack=rack; if(row)patch.rack_row=row; if(col)patch.rack_col=col;
+    // current_location is rebuilt PER MOUSE below so each row keeps its own "Cage N"
     const uniformChanged=Object.keys(patch).length>2;
     const numEdits=[...$('cohortModal').querySelectorAll('.cm_num')].filter(el=>el.value.trim()!==(el.dataset.orig||'').trim()).map(el=>({id:el.dataset.id, tag:el.value.trim()||null}));
     const cageEdits=[...$('cohortModal').querySelectorAll('.cm_cage')].filter(el=>el.value.trim()!==(el.dataset.orig||'').trim()).map(el=>({id:el.dataset.id, cage:el.value.trim()||null}));
@@ -984,6 +986,7 @@ window.__cohort={
     const finalTags=ms.map(m=>{ const e=numEdits.find(x=>x.id===m.id); return e?e.tag:(m.tag_id||null); }).filter(Boolean);
     const dupTag=finalTags.find((t,i)=>finalTags.indexOf(t)!==i);
     if(dupTag){ $('cm_err').textContent=`Number ${dupTag} would be used more than once in this cohort.`; return; }
+    if(locChanged) ms.forEach(m=>{ if(!perMouse.has(m.id))perMouse.set(m.id,{}); }); // every mouse needs its current_location rebuilt (with its own cage)
     try{
       if(uniformChanged){ const done=await inChunks(ids,'PATCH',{Prefer:'return=representation'},patch);
         await audit('mice',null,'COHORT_MODIFY',{batch_id:g.batch_id,count:done.length},patch); }
@@ -992,8 +995,8 @@ window.__cohort={
           await inChunks(pair[1],'PATCH',{Prefer:'return=minimal'},Object.assign({experiments:merged},stamp)); }
         await audit('mice',null,'COHORT_ADD_EXPERIMENTS',{batch_id:g.batch_id,added:newTags.join(', '),count:ids.length},null); }
       if(perMouse.size){ for(const [id,ch] of perMouse){ const m=ms.find(x=>x.id===id)||{}; const p=Object.assign({},ch,stamp);
-          if('cage' in ch){ const base={facility:'facility' in patch?patch.facility:m.facility, room:'room' in patch?patch.room:m.room,
-            rack:'rack' in patch?patch.rack:m.rack, rack_row:'rack_row' in patch?patch.rack_row:m.rack_row, rack_col:'rack_col' in patch?patch.rack_col:m.rack_col, cage:ch.cage};
+          if(locChanged || 'cage' in ch){ const base={facility:'facility' in patch?patch.facility:m.facility, room:'room' in patch?patch.room:m.room,
+            rack:'rack' in patch?patch.rack:m.rack, rack_row:'rack_row' in patch?patch.rack_row:m.rack_row, rack_col:'rack_col' in patch?patch.rack_col:m.rack_col, cage:'cage' in ch?ch.cage:m.cage};
             p.current_location=buildLoc(base)||null; }
           await api(`mice?id=eq.${id}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:p}); }
         await audit('mice',null,'COHORT_RENUMBER',{batch_id:g.batch_id,count:perMouse.size},null); }
@@ -1021,6 +1024,7 @@ function parseCSV(t){ const rows=[]; let row=[],cur='',q=false;
 }
 function impGuess(h){ h=(h||'').toLowerCase().trim();
   if(/geno/.test(h))return 'genotype_label';
+  if(/cage/.test(h))return 'cage'; // before tag_id so "Cage Number" isn't caught by /number/
   if(/tag|mouse\s*#|mouse\s*no|mouse\s*num|ear|^id$|number|^#/.test(h))return 'tag_id';
   if(/^sex$|gender/.test(h))return 'sex';
   if(/cohort|^line$/.test(h))return 'cohort';
@@ -1030,7 +1034,6 @@ function impGuess(h){ h=(h||'').toLowerCase().trim();
   if(/owner|responsible|investigator|^pi$|^user$/.test(h))return 'owner';
   if(/facility/.test(h))return 'facility';
   if(/room/.test(h))return 'room';
-  if(/cage/.test(h))return 'cage';
   if(/rack/.test(h))return 'rack';
   if(/\brow\b/.test(h))return 'rack_row';
   if(/\bcol/.test(h))return 'rack_col';
@@ -1399,7 +1402,7 @@ function showMigrationBanner(){
   if(document.getElementById('migBanner')) return;
   const d=document.createElement('div'); d.id='migBanner';
   d.style.cssText='position:fixed;top:0;left:0;right:0;z-index:9999;background:var(--amber);color:#fff;padding:8px 14px;font-size:13px;text-align:center;box-shadow:var(--shadow)';
-  d.innerHTML='⚠ Database is missing the cohort columns. Run <b>migration_001.sql</b> in Supabase → SQL Editor, then reload. (Adding cohorts / editing location will fail until then.)';
+  d.innerHTML='⚠ Database is missing recent columns. Run the latest <b>migration_00*.sql</b> files (through <b>migration_004.sql</b>) in Supabase → SQL Editor, then reload. (Adding cohorts / editing will fail until then.)';
   document.body.appendChild(d);
 }
 async function boot(){
