@@ -1126,7 +1126,8 @@ async function impSendHelp(reason){ const file=IMP.file||'(file)', subject='[imp
   try{ const ex=(await api('requests?select=subject&status=eq.open&subject=ilike.'+encodeURIComponent('%import-help%'))).data||[];
     if(ex.some(x=>x.subject===subject)){ IMP_REPORTED.add(file); note('A help request for this file is already open — not emailing again.'); return; } }catch(_){}
   try{
-    await api('requests',{method:'POST',body:[{requester_id:USER.id, assignee_id:impAdminId(), assignee_ids:[impAdminId()], status:'open', priority:1,
+    const aid=impAdminId();
+    await api('requests',{method:'POST',body:[{requester_id:USER.id, assignee_id:aid, assignee_ids:aid?[aid]:null, status:'open', priority:1,
       subject, body:`The importer couldn't read “${file}”. Reason: ${reason}. File emailed to ${ADMIN_EMAIL} to reshape into an importable CSV.`}]});
     IMP_REPORTED.add(file); toast('Help request logged for Leo'); note('Logged. In the email window, attach “'+file+'” and send.');
   }catch(e){ note('Couldn’t log the request ('+e.message+') — still opening the email; please send it and try again later.'); }
@@ -1404,8 +1405,8 @@ window.__rq={
       // email the assignees who have an address (server auto-send, else a draft); the rest are still assigned
       let notifyMsg=''; const {emails,missing}=assigneeEmails(assignees);
       let auto=null; if(newId&&emails.length){ try{ auto=await sendRequestEmail(newId); }catch(_){ auto=null; } }
-      if(auto){ notifyMsg = auto.sent? ' · emailed '+auto.sent+' '+(auto.sent>1?'people':'person') : ' · no email on file for the assignees'; }
-      else if(emails.length){ openReqMail(emails, rec); notifyMsg=' · draft email opened for '+emails.length+' recipient'+(emails.length>1?'s':''); }
+      if(auto&&auto.sent>0){ notifyMsg=' · emailed '+auto.sent+' '+(auto.sent>1?'people':'person'); }
+      else if(emails.length){ openReqMail(emails, rec); notifyMsg=' · draft email opened for '+emails.length+' recipient'+(emails.length>1?'s':''); } // server couldn't send → draft
       if(missing.length) notifyMsg+=' · assigned (no email yet): '+missing.join(', ');
       $('reqOverlay').classList.remove('open');
       toast('Request assigned to '+assigneeNames(rec)+notifyMsg);
@@ -1422,7 +1423,7 @@ window.__rq={
         catch(e){ toast('Transfer failed: '+e.message); return; }
         patch.status='fulfilled'; patch.decision_note='Ownership transferred to '+userName(r.requester_id);
       }
-    } else { patch.status=kind; if(kind==='routed_to_breeding'){ patch.assignee_id=managerId(); patch.assignee_ids=[managerId()]; } }
+    } else { patch.status=kind; if(kind==='routed_to_breeding'){ const mid=managerId(); patch.assignee_id=mid||null; patch.assignee_ids=mid?[mid]:null; } }
     try{ await api('requests?id=eq.'+r.id,{method:'PATCH',body:patch}); await audit('requests',r.id,'STATUS',null,patch);
       toast('Updated'); $('reqOverlay').classList.remove('open'); renderRequests(); }
     catch(e){ toast('Failed: '+e.message); }
@@ -1447,13 +1448,13 @@ function showMigrationBanner(){
   if(document.getElementById('migBanner')) return;
   const d=document.createElement('div'); d.id='migBanner';
   d.style.cssText='position:fixed;top:0;left:0;right:0;z-index:9999;background:var(--amber);color:#fff;padding:8px 14px;font-size:13px;text-align:center;box-shadow:var(--shadow)';
-  d.innerHTML='⚠ Database is missing recent columns. Run the latest <b>migration_00*.sql</b> files (through <b>migration_004.sql</b>) in Supabase → SQL Editor, then reload. (Adding cohorts / editing will fail until then.)';
+  d.innerHTML='⚠ Database is missing recent columns. Run the latest <b>migration_00*.sql</b> files (through <b>migration_005.sql</b>) in Supabase → SQL Editor, then reload. (Adding cohorts / requests will fail until then.)';
   document.body.appendChild(d);
 }
 async function boot(){
   if(!configured()){ showScreen('setup'); if(URLB)$('cfgUrl').value=URLB; return; }
   await loadRefs();
-  try{ await api('mouse_v?select=batch_id,dob_estimated,facility,cage&limit=0'); }catch(_){ showMigrationBanner(); } // a migration hasn't been run yet → warn instead of cryptic save errors
+  try{ await api('mouse_v?select=batch_id,dob_estimated,facility,cage&limit=0'); await api('requests?select=assignee_ids&limit=0'); }catch(_){ showMigrationBanner(); } // a migration hasn't been run yet → warn instead of cryptic save errors
   // populate selects that persist across screens
   $('fOwner').innerHTML='<option value="">any</option>'+USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
   $('fCohort').innerHTML='<option value="">any</option>'+COHORTS.map(c=>`<option>${esc(c)}</option>`).join('');
