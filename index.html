@@ -242,7 +242,7 @@
       <div id="peopleList"></div>
       <div class="grid3" style="margin-top:12px;align-items:end">
         <div><label>Full name</label><input class="in" id="newPersonName" placeholder="Jane Doe"></div>
-        <div><label>Role</label><select class="in" id="newPersonRole"><option value="member">member</option><option value="manager">manager</option><option value="pi">pi</option></select></div>
+        <div><label>Role</label><select class="in" id="newPersonRole"><option value="member">Member</option><option value="manager">Manager</option><option value="pi">PI</option><option value="admin">Web maintainer</option></select></div>
         <div><button class="btn p" id="addPerson">Add person</button></div>
       </div>
       <div class="section-h" style="margin-top:18px">Shared password</div>
@@ -340,6 +340,12 @@ async function loadRefs(){
   try{ const c=await api('app_config?key=eq.facilities&select=value'); if(c.data&&c.data[0]&&c.data[0].value) FACILITIES=c.data[0].value.split(',').map(s=>s.trim()).filter(Boolean); }catch(_){}
 }
 const userName=id=>{ const u=USERS.find(x=>x.id===id); return u?u.full_name:''; };
+const userEmail=id=>{ const u=USERS.find(x=>x.id===id); return u?(u.email||null):null; };
+const ROLE_LABEL={admin:'Web maintainer',pi:'PI',manager:'Manager',member:'Member'};
+const ROLE_ORDER=['admin','pi','manager','member'];
+function roleLabel(r){ return ROLE_LABEL[r]||r||'member'; }
+function assigneeNames(r){ const ids=(r.assignee_ids&&r.assignee_ids.length)?r.assignee_ids:(r.assignee_id?[r.assignee_id]:[]);
+  return ids.map(id=>userName(id)||'?').join(', ')||'—'; }
 function ownerOptions(sel){ return '<option value="">—</option>'+USERS.map(u=>`<option value="${u.id}"${u.id===sel?' selected':''}>${esc(u.full_name)}</option>`).join(''); }
 function cohortOptions(sel){ return '<option value="">—</option>'+COHORTS.map(c=>`<option${c===sel?' selected':''}>${esc(c)}</option>`).join(''); }
 function facilityOptions(sel){ return FACILITIES.map(f=>`<option${f===sel?' selected':''}>${esc(f)}</option>`).join(''); }
@@ -406,7 +412,7 @@ $('loginBtn').onclick=async()=>{
 function startApp(){
   showScreen('app');
   $('whoName').textContent=USER.full_name;
-  $('whoRole').textContent=USER.role;
+  $('whoRole').textContent=roleLabel(USER.role);
   const me=USERS.find(u=>u.id===USER.id); // pick up an email saved on a previous device/session
   if(me&&me.email&&!USER.email){ USER.email=me.email; localStorage.setItem('mc:user',JSON.stringify(USER)); }
   renderCohortForm();
@@ -873,7 +879,7 @@ $('addSave').onclick=async()=>{
     if(pending>0 && $('c_eartag').checked){
       await api('requests',{method:'POST',body:[{requester_id:USER.id, subject:`Ear-tag ${pending} ${cohort} mice`,
         body:`Pending ear tags — new ${cohort} cohort, ${total} mice in ${CAGES.length} cage(s); ${pending} still need a number.`,
-        needed_cohort:cohort, quantity:pending, assignee_id:owner, status:'open', priority:0}]});
+        needed_cohort:cohort, quantity:pending, assignee_id:owner, assignee_ids:[owner], status:'open', priority:0}]});
       extra=` + ear-tag request (${pending})`;
     }
     toast(`Added ${total} mice in ${CAGES.length} cage(s)`+extra); renderCohortForm(); switchTab('colony'); page=0; loadColony();
@@ -1120,7 +1126,7 @@ async function impSendHelp(reason){ const file=IMP.file||'(file)', subject='[imp
   try{ const ex=(await api('requests?select=subject&status=eq.open&subject=ilike.'+encodeURIComponent('%import-help%'))).data||[];
     if(ex.some(x=>x.subject===subject)){ IMP_REPORTED.add(file); note('A help request for this file is already open — not emailing again.'); return; } }catch(_){}
   try{
-    await api('requests',{method:'POST',body:[{requester_id:USER.id, assignee_id:impAdminId(), status:'open', priority:1,
+    await api('requests',{method:'POST',body:[{requester_id:USER.id, assignee_id:impAdminId(), assignee_ids:[impAdminId()], status:'open', priority:1,
       subject, body:`The importer couldn't read “${file}”. Reason: ${reason}. File emailed to ${ADMIN_EMAIL} to reshape into an importable CSV.`}]});
     IMP_REPORTED.add(file); toast('Help request logged for Leo'); note('Logged. In the email window, attach “'+file+'” and send.');
   }catch(e){ note('Couldn’t log the request ('+e.message+') — still opening the email; please send it and try again later.'); }
@@ -1233,8 +1239,8 @@ async function impDoImport(){
 // ---------- people ----------
 async function renderPeople(){
   await loadRefs();
-  $('peopleList').innerHTML=`<div class="tablewrap"><table><thead><tr><th>Name</th><th>Role</th><th>Active</th></tr></thead>
-    <tbody>${USERS.map(u=>`<tr><td>${esc(u.full_name)}</td><td><span class="pill">${esc(u.role)}</span></td><td>${u.is_active===false?'no':'yes'}</td></tr>`).join('')||'<tr><td colspan="3" class="empty">No people yet.</td></tr>'}</tbody></table></div>`;
+  $('peopleList').innerHTML=`<div class="tablewrap"><table><thead><tr><th>Name</th><th>Role</th><th>Email</th><th>Active</th></tr></thead>
+    <tbody>${USERS.map(u=>`<tr><td>${esc(u.full_name)}</td><td><span class="pill">${esc(roleLabel(u.role))}</span></td><td style="color:${u.email?'var(--muted)':'var(--amber)'};font-size:12px">${esc(u.email||'no email')}</td><td>${u.is_active===false?'no':'yes'}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">No people yet.</td></tr>'}</tbody></table></div>`;
   // refresh owner filters/selects with new users
   $('fOwner').innerHTML='<option value="">any</option>'+USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
   $('fCohort').innerHTML='<option value="">any</option>'+COHORTS.map(c=>`<option>${esc(c)}</option>`).join('');
@@ -1267,14 +1273,14 @@ function reqBadge(s){
   return `<span class="badge ${m[s]||'b-dead'}">${esc(String(s).replace(/_/g,' '))}</span>`;
 }
 function managerId(){ const m=USERS.find(u=>u.full_name==='Bertha')||USERS.find(u=>u.role==='manager')||USERS.find(u=>u.role==='pi'); return m&&m.id; }
-const canAct=r=>USER&&(USER.id===r.assignee_id||USER.role==='manager'||USER.role==='pi');
+const canAct=r=>USER&&(USER.role==='manager'||USER.role==='pi'||USER.role==='admin'||USER.id===r.assignee_id||((r.assignee_ids||[]).indexOf(USER.id)>=0));
 
 async function renderRequests(){
   const f=$('reqFilter').value;
   let q='requests?select=*&order=priority.desc,created_at.desc';
   if(f==='open') q+='&status=in.(open,routed_to_breeding)';
   else if(f==='mine') q+='&requester_id=eq.'+USER.id;
-  else if(f==='assigned') q+='&assignee_id=eq.'+USER.id;
+  else if(f==='assigned') q+='&or=(assignee_id.eq.'+USER.id+',assignee_ids.cs.{'+USER.id+'})';
   else if(f==='routed_to_breeding') q+='&status=eq.routed_to_breeding';
   let rows=[]; try{ rows=(await api(q)).data||[]; }catch(e){ $('reqBody').innerHTML=`<tr><td colspan="7" class="empty">Error: ${esc(e.message)}</td></tr>`; return; }
   $('reqCount').textContent=rows.length+' request'+(rows.length!==1?'s':'');
@@ -1284,7 +1290,7 @@ async function renderRequests(){
     <td><b>${esc(r.subject)}</b></td>
     <td>${esc(reqNeeds(r))}</td>
     <td>${esc(userName(r.requester_id))}</td>
-    <td>${esc(userName(r.assignee_id)||'—')}</td>
+    <td>${esc(assigneeNames(r))}</td>
     <td>${reqBadge(r.status)}</td>
     <td class="sub" style="color:var(--muted)">${esc((r.created_at||'').slice(0,10))}</td>
   </tr>`).join('');
@@ -1309,27 +1315,32 @@ function openNewReq(){
       <div class="field"><label>Age ≥ (wk)</label><input class="in" id="q_agemin" type="number"></div>
       <div class="field"><label>Age ≤ (wk)</label><input class="in" id="q_agemax" type="number"></div>
     </div>
-    <div class="field"><label>Notify by email (opens a pre-filled email to them)</label>
-      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px">
-        <label style="display:flex;gap:5px;align-items:center"><input type="checkbox" id="q_n_owner" checked> Owner</label>
-        <label style="display:flex;gap:5px;align-items:center"><input type="checkbox" id="q_n_mgr"> Managers</label>
-        <label style="display:flex;gap:5px;align-items:center"><input type="checkbox" id="q_n_pi"> PI</label>
-      </div></div>
+    <div class="field"><label>Assign &amp; notify — pick one or more people</label>
+      <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:4px">Ticked people are assigned to this request. Anyone with an email is emailed; people with “no email” are still assigned, just not emailed.</div>
+      <div id="q_assignees" style="max-height:190px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px">${assigneePicker()}</div>
+    </div>
     <div class="modal-actions"><button class="btn sm" onclick="__rq.close()">Cancel</button><button class="btn p" onclick="__rq.create()">Submit request</button></div>
     <div class="err" id="q_err"></div>`;
   $('reqOverlay').classList.add('open');
 }
+function assigneePicker(sel){ sel=sel||[]; let html='';
+  for(const role of ROLE_ORDER){ const people=USERS.filter(u=>u.role===role && u.is_active!==false); if(!people.length)continue;
+    html+=`<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:6px 0 3px">${esc(roleLabel(role))}</div>`;
+    html+=people.map(u=>`<label style="display:flex;align-items:center;gap:7px;font-size:13px;margin-bottom:3px">
+      <input type="checkbox" class="q_asg" value="${esc(u.id)}"${sel.indexOf(u.id)>=0?' checked':''}>
+      <span>${esc(u.full_name)}</span>
+      <span style="color:${u.email?'var(--muted)':'var(--amber)'};font-size:11px">${esc(u.email||'no email')}</span></label>`).join('');
+  }
+  return html||'<div class="sub" style="color:var(--muted)">No people yet.</div>'; }
 const EMAIL_RE=/^[^\s@,;"<>]+@[^\s@,;"<>]+\.[^\s@,;"<>]+$/;
-function notifyEmails(targets, ownerId){ const set=new Set(); const missing=[];
-  const add=u=>{ if(u.email&&EMAIL_RE.test(u.email.trim()))set.add(u.email.trim()); else missing.push(u.full_name); };
-  if(targets.includes('owner')){ const u=ownerId&&USERS.find(x=>x.id===ownerId); if(u)add(u); else missing.push('(no owner — routed to breeding)'); }
-  if(targets.includes('managers')){ const m=USERS.filter(u=>u.role==='manager'); if(!m.length)missing.push('(no managers)'); m.forEach(add); }
-  if(targets.includes('pi')){ const p=USERS.filter(u=>u.role==='pi'); if(!p.length)missing.push('(no PI)'); p.forEach(add); }
+function assigneeEmails(ids){ const set=new Set(), missing=[]; // split assignees into those we can email vs those without an address
+  ids.forEach(id=>{ const u=USERS.find(x=>x.id===id); if(!u)return; const e=(u.email||'').trim();
+    if(e&&EMAIL_RE.test(e))set.add(e); else missing.push(u.full_name); });
   return {emails:[...set], missing:[...new Set(missing)]}; }
-async function sendRequestEmail(requestId, roles, ownerId){ // POST to the Edge Function; throws if it isn't deployed/reachable → caller falls back to mailto
+async function sendRequestEmail(requestId){ // Edge Function emails the request's assignees; throws if unreachable → mailto fallback
   const res=await fetch(URLB.replace(/\/$/,'')+'/functions/v1/notify-request',{
     method:'POST', headers:authHeaders({'Content-Type':'application/json'}),
-    body:JSON.stringify({requestId, roles, ownerId})});
+    body:JSON.stringify({requestId})});
   if(!res.ok) throw new Error('notify-request '+res.status);
   return res.json(); }
 function openReqMail(emails, rec){
@@ -1361,7 +1372,7 @@ function renderReq(r,cm,tgt){
       <button class="btn sm" onclick="__rq.close()">✕</button>
     </div>
     <div class="kv"><span class="k">Status</span>${reqBadge(r.status)}</div>
-    <div class="kv"><span class="k">Assignee</span><span>${esc(userName(r.assignee_id)||'—')}</span></div>
+    <div class="kv"><span class="k">Assigned to</span><span>${esc(assigneeNames(r))}</span></div>
     <div class="kv"><span class="k">Needs</span><span>${esc(reqNeeds(r))}</span></div>
     ${tgt?`<div class="kv"><span class="k">Specific mouse</span><span>#${esc(tgt)}</span></div>`:''}
     ${r.body?`<div class="kv"><span class="k">Details</span><span>${esc(r.body)}</span></div>`:''}
@@ -1380,41 +1391,24 @@ window.__rq={
     const rec={requester_id:USER.id, subject:subj, body:g('q_body'), needed_sex:g('q_sex'), needed_cohort:g('q_cohort'),
       needed_age_min_weeks:g('q_agemin')?+g('q_agemin'):null, needed_age_max_weeks:g('q_agemax')?+g('q_agemax'):null,
       quantity:g('q_qty')?+g('q_qty'):null, priority:0};
+    const assignees=[...$('reqModal').querySelectorAll('.q_asg:checked')].map(el=>el.value);
+    if(!assignees.length){ $('q_err').textContent='Pick at least one person to assign this request to.'; return; }
+    rec.assignee_ids=assignees; rec.assignee_id=assignees[0]; rec.status='open';
     try{
-      const mouseNo=g('q_mouse');
-      let hit=null, realOwner=null; // the genuine responsible_person, not the breeding fallback
-      if(mouseNo){
-        hit=(await api('mice?select=id,responsible_person&status=in.(healthy,diseased)&tag_id=eq.'+encodeURIComponent(mouseNo)+'&limit=1')).data;
-        if(hit&&hit[0]){ rec.target_mouse_id=hit[0].id; realOwner=hit[0].responsible_person||null; rec.assignee_id=realOwner||managerId(); rec.status='open'; }
-        else { rec.status='routed_to_breeding'; rec.assignee_id=managerId(); }
-      } else {
-        let mq='mice?select=id,responsible_person&status=in.(healthy,diseased)&limit=1';
-        if(rec.needed_sex)mq+='&sex=eq.'+rec.needed_sex;
-        if(rec.needed_cohort)mq+='&cohort=eq.'+encodeURIComponent(rec.needed_cohort);
-        hit=(await api(mq)).data;
-        if(hit&&hit[0]){ realOwner=hit[0].responsible_person||null; rec.assignee_id=realOwner||managerId(); rec.status='open'; }
-        else { rec.status='routed_to_breeding'; rec.assignee_id=managerId(); }
-      }
+      const mouseNo=g('q_mouse'); // note the specific mouse (for approve → transfer) if one is given
+      if(mouseNo){ const hit=(await api('mice?select=id&status=in.(healthy,diseased)&tag_id=eq.'+encodeURIComponent(mouseNo)+'&limit=1')).data;
+        if(hit&&hit[0]) rec.target_mouse_id=hit[0].id; }
       const r=await api('requests',{method:'POST',headers:{Prefer:'return=representation'},body:[rec]});
       const newId=r.data&&r.data[0]&&r.data[0].id;
       await audit('requests', newId, 'INSERT', null, rec);
-      // notify chosen people: try the server (auto-send) first, fall back to a mail-client draft
-      const notif=[]; if($('q_n_owner').checked)notif.push('owner'); if($('q_n_mgr').checked)notif.push('managers'); if($('q_n_pi').checked)notif.push('pi');
-      let notifyMsg='';
-      if(notif.length){
-        let auto=null;
-        if(newId){ try{ auto=await sendRequestEmail(newId, notif, realOwner); }catch(_){ auto=null; } }
-        if(auto){ const sent=auto.sent||0, miss=auto.missing||[];
-          notifyMsg = sent? ' · emailed '+sent+' '+(sent>1?'people':'person') : ' · no email on file for the selected people';
-          if(miss.length) notifyMsg+=' (no email yet: '+miss.join(', ')+')';
-        } else { // server not set up / failed → open a pre-filled draft instead
-          const {emails,missing}=notifyEmails(notif, realOwner);
-          if(emails.length){ openReqMail(emails, rec); notifyMsg=' · draft email opened for '+emails.length+' recipient'+(emails.length>1?'s':''); }
-          if(missing.length) notifyMsg+=' · no email yet for: '+missing.join(', ');
-        }
-      }
+      // email the assignees who have an address (server auto-send, else a draft); the rest are still assigned
+      let notifyMsg=''; const {emails,missing}=assigneeEmails(assignees);
+      let auto=null; if(newId&&emails.length){ try{ auto=await sendRequestEmail(newId); }catch(_){ auto=null; } }
+      if(auto){ notifyMsg = auto.sent? ' · emailed '+auto.sent+' '+(auto.sent>1?'people':'person') : ' · no email on file for the assignees'; }
+      else if(emails.length){ openReqMail(emails, rec); notifyMsg=' · draft email opened for '+emails.length+' recipient'+(emails.length>1?'s':''); }
+      if(missing.length) notifyMsg+=' · assigned (no email yet): '+missing.join(', ');
       $('reqOverlay').classList.remove('open');
-      toast((rec.status==='routed_to_breeding' ? 'Sent to breeding queue (Bertha)' : 'Request sent to '+(userName(rec.assignee_id)||'owner'))+notifyMsg);
+      toast('Request assigned to '+assigneeNames(rec)+notifyMsg);
       renderRequests();
     }catch(e){ $('q_err').textContent=e.message; }
   },
@@ -1428,7 +1422,7 @@ window.__rq={
         catch(e){ toast('Transfer failed: '+e.message); return; }
         patch.status='fulfilled'; patch.decision_note='Ownership transferred to '+userName(r.requester_id);
       }
-    } else { patch.status=kind; if(kind==='routed_to_breeding') patch.assignee_id=managerId(); }
+    } else { patch.status=kind; if(kind==='routed_to_breeding'){ patch.assignee_id=managerId(); patch.assignee_ids=[managerId()]; } }
     try{ await api('requests?id=eq.'+r.id,{method:'PATCH',body:patch}); await audit('requests',r.id,'STATUS',null,patch);
       toast('Updated'); $('reqOverlay').classList.remove('open'); renderRequests(); }
     catch(e){ toast('Failed: '+e.message); }

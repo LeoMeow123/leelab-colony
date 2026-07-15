@@ -83,9 +83,10 @@ Every person in `app_users` has a **role**, and the role changes what they can d
 
 - **Member** — files requests, adds/imports mice, manages their own colony.
 - **Manager** — all of the above, **plus** approve/deny requests, transfer
-  ownership, and route to breeding. (Breeding requests go to the manager — e.g.
-  Bertha.)
+  ownership, and route to breeding. (The colony/breeding manager — e.g. Bertha.)
 - **PI** — same authority as a manager, for oversight.
+- **Web maintainer** — full access (Leo). Same powers as manager/PI; the label
+  just marks who runs the site, separate from the colony manager.
 
 ## Why different users see different things
 
@@ -95,12 +96,13 @@ and **your role**:
 
 - **"My colony" / the "Mine" filter** ask the database only for rows where
   `responsible_person = you` — so you see *your* mice, not everyone's.
-- **Requests auto-route by ownership**: a request goes to the matching mouse's
-  owner; if none is available, to the breeding queue (the manager).
-- **Approve / transfer / route buttons render only for a Manager or PI** (or the
-  request's assignee). A member simply doesn't see them.
-- **Notifications target the roles you pick** — Owner / Managers / PI — so only
-  those people get emailed.
+- **Requests are assigned to specific people you pick** (grouped by role, with
+  their email shown) — one or several. People without an email can still be
+  assigned; they just aren't emailed.
+- **Approve / transfer / route buttons render only for a Manager, PI, or Web
+  maintainer** (or one of the request's assignees). A member doesn't see them.
+- **Only a request's assignees are emailed** — the server looks up their
+  addresses; no one else is contacted.
 
 **Honest caveat (worth saying to the lab):** today this is *presentation-level*
 differentiation, not hard security. With one shared password and one public key, a

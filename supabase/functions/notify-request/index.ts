@@ -5,10 +5,11 @@
 //          APP_URL (optional, link included in the email).
 //          SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are injected automatically.
 //
-// The client sends only { requestId, roles, ownerId }. Recipients are resolved
-// SERVER-SIDE from app_users (never a client-supplied address list), and the
-// message body is composed from the stored request — so this can only ever
-// email known lab members about a real request, not act as an open relay.
+// The client sends only { requestId }. Recipients are the request's OWN
+// assignees (requests.assignee_ids), resolved to emails SERVER-SIDE from
+// app_users — never a client-supplied address list — and the body is composed
+// from the stored request. So it can only email a request's assignees, not act
+// as an open relay.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
@@ -29,9 +30,8 @@ Deno.serve(async (req) => {
   if (allowedKey && (req.headers.get("apikey") || "") !== allowedKey) return json({ error: "unauthorized" }, 401);
 
   try {
-    const { requestId, roles } = await req.json().catch(() => ({}));
-    if (!requestId || !Array.isArray(roles) || roles.length === 0)
-      return json({ error: "requestId and non-empty roles[] required" }, 400);
+    const { requestId } = await req.json().catch(() => ({}));
+    if (!requestId) return json({ error: "requestId required" }, 400);
 
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -44,7 +44,7 @@ Deno.serve(async (req) => {
     const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
     const { data: r, error: e1 } = await db.from("requests")
-      .select("subject, body, needed_sex, needed_cohort, quantity, status, requester_id, assignee_id, created_at")
+      .select("subject, body, needed_sex, needed_cohort, quantity, status, requester_id, assignee_id, assignee_ids, created_at")
       .eq("id", requestId).single();
     if (e1 || !r) return json({ error: "request not found" }, 404);
 
@@ -52,28 +52,20 @@ Deno.serve(async (req) => {
     if (r.created_at && Date.now() - new Date(r.created_at).getTime() > 15 * 60 * 1000)
       return json({ error: "request too old to notify" }, 409);
 
-    // Resolve recipients strictly from app_users, deduped. Owner is derived from the request's
-    // assignee (server-side) — never a client-supplied id — so a caller can't target arbitrary people.
+    // Recipients = the request's OWN assignees (assignee_ids, else the single assignee_id),
+    // resolved to emails from app_users. Nothing comes from the caller.
+    const ids: string[] = (Array.isArray(r.assignee_ids) && r.assignee_ids.length)
+      ? r.assignee_ids : (r.assignee_id ? [r.assignee_id] : []);
+    if (ids.length === 0) return json({ sent: 0, missing: [] });
+
     const emails = new Set<string>();
     const missing = new Set<string>();
     const EMAIL_RE = /^[^\s@,;"<>]+@[^\s@,;"<>]+\.[^\s@,;"<>]+$/;
-    const addUser = (u: { full_name?: string; email?: string | null } | null | undefined) => {
-      if (!u) return;
+    const { data: users } = await db.from("app_users").select("full_name,email").in("id", ids);
+    (users || []).forEach((u: { full_name?: string; email?: string | null }) => {
       const e = (u.email || "").trim();
       if (e && EMAIL_RE.test(e)) emails.add(e); else missing.add(u.full_name || "someone");
-    };
-    if (roles.includes("owner") && r.status === "open" && r.assignee_id) {
-      const { data } = await db.from("app_users").select("full_name,email").eq("id", r.assignee_id).maybeSingle();
-      addUser(data);
-    }
-    if (roles.includes("managers")) {
-      const { data } = await db.from("app_users").select("full_name,email").eq("role", "manager");
-      (data || []).forEach(addUser);
-    }
-    if (roles.includes("pi")) {
-      const { data } = await db.from("app_users").select("full_name,email").eq("role", "pi");
-      (data || []).forEach(addUser);
-    }
+    });
     const to = [...emails];
     if (to.length === 0) return json({ sent: 0, missing: [...missing] });
 

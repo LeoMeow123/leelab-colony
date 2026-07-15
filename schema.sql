@@ -9,7 +9,7 @@ create table if not exists app_users (
   id uuid primary key default gen_random_uuid(),
   full_name text not null,
   email text,
-  role text not null default 'member' check (role in ('pi','manager','member')),
+  role text not null default 'member' check (role in ('pi','manager','member','admin')), -- admin = "Web maintainer" (full access) in the UI
   is_active boolean not null default true,
   created_at timestamptz default now()
 );
@@ -127,7 +127,8 @@ create table if not exists requests (
   needed_age_max_weeks int,
   quantity int,
   target_mouse_id uuid references mice(id),
-  assignee_id uuid references app_users(id),
+  assignee_id uuid references app_users(id),   -- primary assignee (kept for compatibility)
+  assignee_ids uuid[],                          -- all assignees (a request can go to several people)
   status text not null default 'open'
     check (status in ('open','approved','denied','routed_to_breeding','fulfilled','closed','cancelled')),
   priority int default 0,

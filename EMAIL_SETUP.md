@@ -8,10 +8,10 @@ popup (graceful fallback), so nothing breaks in the meantime.
 
 **How it works:** the browser can't hold a mail-provider secret, so a small
 **Supabase Edge Function** (`supabase/functions/notify-request/`) does the send
-via **[Resend](https://resend.com)**. The client only sends `{requestId, roles,
-ownerId}`; the function resolves recipient emails from `app_users` and composes
-the message server-side (it can only email known lab members about a real
-request — not an open relay).
+via **[Resend](https://resend.com)**. The client only sends `{requestId}`; the
+function looks up that request's **assignees** (`assignee_ids`), resolves their
+emails from `app_users`, and composes the message server-side — so it can only
+email a request's own assignees, not an arbitrary address list.
 
 ## 1. Resend account + API key
 1. Sign up at **resend.com** (free tier: 100 emails/day, 3,000/mo).
