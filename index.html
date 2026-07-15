@@ -156,6 +156,7 @@
       <button class="tab" data-tab="add">＋ Add cohort</button>
       <button class="tab" data-tab="import">Import</button>
       <button class="tab" data-tab="requests">Requests</button>
+      <button class="tab" data-tab="myreq">My requests</button>
       <button class="tab" data-tab="people">People</button>
     </div>
     <div class="who"><span>👤 <b id="whoName"></b> <span class="pill" id="whoRole"></span></span><button class="btn sm" id="themeToggle" title="Light / dark">☾</button><button class="btn sm" id="logout">Logout</button></div>
@@ -232,6 +233,16 @@
       <input type="file" id="impFile" accept=".csv,.xlsx,.xls" class="in" style="max-width:360px">
       <div id="impStep" style="margin-top:14px"></div>
     </div>
+  </div>
+
+  <!-- MY REQUESTS -->
+  <div class="wrap hidden" id="tab-myreq">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+      <div><h1 style="font-size:17px;margin:0">My requests <span class="em" id="myreqHdr"></span></h1>
+      <div class="sub" style="color:var(--muted);font-size:12px">Requests you filed. Click <b>Edit</b> to change the details or who it's assigned to.</div></div>
+      <button class="btn p" id="myreqNew">＋ New request</button>
+    </div>
+    <div id="myreqList"></div>
   </div>
 
   <!-- PEOPLE -->
@@ -443,10 +454,11 @@ $('logout').onclick=()=>{ localStorage.removeItem('mc:user'); USER=null; showLog
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>switchTab(t.dataset.tab));
 function switchTab(name){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
-  ['colony','mine','add','import','people','requests'].forEach(n=>$('tab-'+n).classList.toggle('hidden',n!==name));
+  ['colony','mine','add','import','people','requests','myreq'].forEach(n=>$('tab-'+n).classList.toggle('hidden',n!==name));
   if(name==='people') renderPeople();
   if(name==='requests') renderRequests();
   if(name==='mine') renderMine();
+  if(name==='myreq') renderMyReq();
 }
 
 // ---------- colony table ----------
@@ -1303,24 +1315,35 @@ async function renderRequests(){
 }
 async function bumpReq(id,pri){ try{ await api('requests?id=eq.'+id,{method:'PATCH',body:{priority:pri+1}}); renderRequests(); }catch(e){ toast('Failed: '+e.message); } }
 
-function openNewReq(){
-  $('reqModal').innerHTML=`<h2>New mouse request</h2>
-    <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:12px">Ask an owner for specific mice, or describe what you need — if the lab doesn't have it, it routes to Bertha for breeding.</div>
-    <div class="field"><label>Subject</label><input class="in" id="q_subj" placeholder="e.g. 4 APP females for behavior"></div>
-    <div class="field"><label>Why / details</label><textarea class="in" id="q_body" rows="2" placeholder="reason, timeline…"></textarea></div>
-    <div class="field"><label>Specific mouse # (optional — blank = request by criteria)</label><input class="in" id="q_mouse" placeholder="mouse number"></div>
+function reqFieldsHtml(r){ r=r||{}; const asel=(r.assignee_ids&&r.assignee_ids.length)?r.assignee_ids:(r.assignee_id?[r.assignee_id]:[]);
+  return `
+    <div class="field"><label>Subject</label><input class="in" id="q_subj" value="${esc(r.subject||'')}" placeholder="e.g. 4 APP females for behavior"></div>
+    <div class="field"><label>Why / details</label><textarea class="in" id="q_body" rows="2" placeholder="reason, timeline…">${esc(r.body||'')}</textarea></div>
+    ${r.id?'':`<div class="field"><label>Specific mouse # (optional — blank = request by criteria)</label><input class="in" id="q_mouse" placeholder="mouse number"></div>`}
     <div class="grid3">
-      <div class="field"><label>Sex</label><select class="in" id="q_sex"><option value="">any</option><option>M</option><option>F</option></select></div>
-      <div class="field"><label>Genotype</label><select class="in" id="q_cohort">${cohortOptions('')}</select></div>
-      <div class="field"><label>Quantity</label><input class="in" id="q_qty" type="number" min="1" placeholder="1"></div>
-      <div class="field"><label>Age ≥ (wk)</label><input class="in" id="q_agemin" type="number"></div>
-      <div class="field"><label>Age ≤ (wk)</label><input class="in" id="q_agemax" type="number"></div>
+      <div class="field"><label>Sex</label><select class="in" id="q_sex"><option value="">any</option>${['M','F'].map(x=>`<option${r.needed_sex===x?' selected':''}>${x}</option>`).join('')}</select></div>
+      <div class="field"><label>Genotype</label><select class="in" id="q_cohort">${cohortOptions(r.needed_cohort||'')}</select></div>
+      <div class="field"><label>Quantity</label><input class="in" id="q_qty" type="number" min="1" value="${esc(r.quantity!=null?r.quantity:'')}" placeholder="1"></div>
+      <div class="field"><label>Age ≥ (wk)</label><input class="in" id="q_agemin" type="number" value="${esc(r.needed_age_min_weeks!=null?r.needed_age_min_weeks:'')}"></div>
+      <div class="field"><label>Age ≤ (wk)</label><input class="in" id="q_agemax" type="number" value="${esc(r.needed_age_max_weeks!=null?r.needed_age_max_weeks:'')}"></div>
     </div>
     <div class="field"><label>Assign &amp; notify — pick one or more people</label>
       <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:4px">Ticked people are assigned to this request. Anyone with an email is emailed; people with “no email” are still assigned, just not emailed.</div>
-      <div id="q_assignees" style="max-height:190px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px">${assigneePicker()}</div>
-    </div>
+      <div id="q_assignees" style="max-height:190px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px">${assigneePicker(asel)}</div>
+    </div>`; }
+function openNewReq(){
+  $('reqModal').innerHTML=`<h2>New mouse request</h2>
+    <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:12px">Ask for specific mice or describe what you need, then pick who to assign it to.</div>
+    ${reqFieldsHtml()}
     <div class="modal-actions"><button class="btn sm" onclick="__rq.close()">Cancel</button><button class="btn p" onclick="__rq.create()">Submit request</button></div>
+    <div class="err" id="q_err"></div>`;
+  $('reqOverlay').classList.add('open');
+}
+function openEditReq(r){
+  $('reqModal').innerHTML=`<h2>Edit request</h2>
+    <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:12px">Update the details or change who it's assigned to.</div>
+    ${reqFieldsHtml(r)}
+    <div class="modal-actions"><button class="btn sm" onclick="__rq.close()">Cancel</button><button class="btn p" onclick="__rq.saveEdit('${esc(r.id)}')">Save changes</button></div>
     <div class="err" id="q_err"></div>`;
   $('reqOverlay').classList.add('open');
 }
@@ -1370,7 +1393,7 @@ function renderReq(r,cm,tgt){
   $('reqModal').innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:flex-start">
       <div><h2>${esc(r.subject)}</h2><div class="mid">by ${esc(userName(r.requester_id))} · ${esc((r.created_at||'').slice(0,10))}</div></div>
-      <button class="btn sm" onclick="__rq.close()">✕</button>
+      <div style="display:flex;gap:6px">${(r.requester_id===USER.id||canAct(r))?`<button class="btn sm" onclick="__rq.edit()">Edit</button>`:''}<button class="btn sm" onclick="__rq.close()">✕</button></div>
     </div>
     <div class="kv"><span class="k">Status</span>${reqBadge(r.status)}</div>
     <div class="kv"><span class="k">Assigned to</span><span>${esc(assigneeNames(r))}</span></div>
@@ -1413,6 +1436,22 @@ window.__rq={
       renderRequests();
     }catch(e){ $('q_err').textContent=e.message; }
   },
+  edit:()=>{ if(curReq) openEditReq(curReq); },
+  saveEdit:async(id)=>{
+    const g=id2=>$(id2).value.trim()||null;
+    const subj=g('q_subj'); if(!subj){ $('q_err').textContent='Subject required.'; return; }
+    const assignees=[...$('reqModal').querySelectorAll('.q_asg:checked')].map(el=>el.value);
+    if(!assignees.length){ $('q_err').textContent='Pick at least one person to assign this request to.'; return; }
+    const patch={subject:subj, body:g('q_body'), needed_sex:g('q_sex'), needed_cohort:g('q_cohort'),
+      needed_age_min_weeks:g('q_agemin')?+g('q_agemin'):null, needed_age_max_weeks:g('q_agemax')?+g('q_agemax'):null,
+      quantity:g('q_qty')?+g('q_qty'):null, assignee_ids:assignees, assignee_id:assignees[0]};
+    try{
+      await api('requests?id=eq.'+id,{method:'PATCH',body:patch});
+      await audit('requests', id, 'EDIT', null, patch);
+      toast('Request updated'); $('reqOverlay').classList.remove('open');
+      renderRequests(); if(document.querySelector('.tab.active')&&document.querySelector('.tab.active').dataset.tab==='myreq') renderMyReq();
+    }catch(e){ $('q_err').textContent=e.message; }
+  },
   decide:async(kind)=>{
     const r=curReq; const patch={decided_at:new Date().toISOString()};
     if(kind==='approve'){
@@ -1436,6 +1475,27 @@ window.__rq={
 };
 $('newReqBtn').onclick=openNewReq;
 $('reqFilter').onchange=renderRequests;
+$('myreqNew').onclick=openNewReq;
+async function renderMyReq(){
+  $('myreqList').innerHTML='<div class="sub" style="color:var(--muted)">Loading…</div>';
+  let rows=[]; try{ rows=(await api('requests?requester_id=eq.'+USER.id+'&select=*&order=created_at.desc')).data||[]; }
+  catch(e){ $('myreqList').innerHTML=`<div class="empty">Error: ${esc(e.message)}</div>`; return; }
+  $('myreqHdr').textContent = rows.length?('· '+rows.length):'';
+  if(!rows.length){ $('myreqList').innerHTML='<div class="empty">You haven’t filed any requests yet. Click “＋ New request”.</div>'; return; }
+  MYREQ=rows;
+  $('myreqList').innerHTML=`<div class="tablewrap"><table><thead><tr><th>Subject</th><th>Needs</th><th>Assigned to</th><th>Status</th><th>Filed</th><th></th></tr></thead>
+    <tbody>${rows.map((r,i)=>`<tr>
+      <td><b>${esc(r.subject)}</b></td>
+      <td>${esc(reqNeeds(r))}</td>
+      <td>${esc(assigneeNames(r))}</td>
+      <td>${reqBadge(r.status)}</td>
+      <td style="white-space:nowrap;font-size:12px;color:var(--muted)">${esc((r.created_at||'').slice(0,10))}</td>
+      <td style="white-space:nowrap"><button class="btn p sm" data-edit="${i}">Edit</button> <button class="btn sm" data-open="${esc(r.id)}">Open</button></td>
+    </tr>`).join('')}</tbody></table></div>`;
+  $('myreqList').querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ curReq=MYREQ[+b.dataset.edit]; openEditReq(curReq); });
+  $('myreqList').querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>openReq(b.dataset.open));
+}
+let MYREQ=[];
 $('reqOverlay').addEventListener('mousedown',e=>{ if(e.target===$('reqOverlay')) $('reqOverlay').classList.remove('open'); });
 
 // theme toggle (light default; flips to blue/black dark, remembered per browser)
