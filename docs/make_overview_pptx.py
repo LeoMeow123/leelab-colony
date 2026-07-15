@@ -58,6 +58,9 @@ def connect(sl,p1,p2,color=CONN,width=1.75,two=False,dash=False):
 def note(sl,s,l,t,w,color=AMBER,size=10):
     return textbox(sl,s,l,t,w,0.3,size=size,color=color,italic=True,align=PP_ALIGN.CENTER)
 
+def speaker(sl,text):
+    sl.notes_slide.notes_text_frame.text=text
+
 # ============================================================ Slide 1: title
 s=slide()
 bg=s.shapes.add_shape(MSO_SHAPE.RECTANGLE,0,0,SW,prs.slide_height); bg.fill.solid()
@@ -65,6 +68,12 @@ bg.fill.fore_color.rgb=DBLUE; bg.line.fill.background(); bg.shadow.inherit=False
 textbox(s,"🐭 Lee Lab Mouse Colony Database",1,2.6,11.3,1.2,size=40,color=WHITE,bold=True,align=PP_ALIGN.CENTER)
 textbox(s,"How it works, end to end — and why different users see different things",
         1,3.9,11.3,0.8,size=20,color=RGBColor(0xC7,0xD6,0xF5),align=PP_ALIGN.CENTER)
+speaker(s,
+"Our lab's mouse colony database: a single web page backed by a hosted database (Supabase). "
+"This one diagram shows how it works end to end, how several people use it at once, and why "
+"different people see different things.\n\n"
+"Live at leomeow123.github.io/leelab-colony (moving to colony.kuofenleelab.com). "
+"No server to maintain and it runs on free tiers.")
 
 # ============================================================ Slide 2: big chart
 s=slide()
@@ -125,6 +134,39 @@ r=p.add_run()
 r.text=("Same data, different views: everyone browses & adds · 'My colony' is scoped to you · "
         "only Managers/PI approve & route to breeding · every change is logged in audit_log")
 r.font.size=Pt(12); r.font.color.rgb=DBLUE; r.font.name="Calibri"; r.font.bold=True
+
+speaker(s,
+"WALKTHROUGH (top row left→right, then the bottom lane)\n"
+"Everyone signs in the same way — pick your name + one shared lab password — so there is no account admin. "
+"On first login you save your email once (used only for notifications). Your name is then attached to everything you do.\n"
+"\n"
+"HOW SUPABASE WORKS\n"
+"- Supabase is a hosted PostgreSQL database that also auto-generates a web (REST) API in front of every table, plus "
+"Row-Level Security and small server-side functions.\n"
+"- The web page is just one static HTML file (on GitHub Pages). It has no backend of its own — it calls Supabase's REST "
+"API directly, sending a public 'publishable' key with each request.\n"
+"- Data lives in a few tables: mice (the hub), app_users (people + role + email), requests, audit_log, app_config. A "
+"database view (mouse_v) computes each mouse's age and staleness from its date of birth on the fly.\n"
+"- Anything that needs a secret (sending email) can't run in the browser, so it runs in a Supabase Edge Function "
+"server-side, which holds the mail key.\n"
+"- A GitHub Action dumps every table to a private repo once a day (restorable backups) and keeps the free database awake.\n"
+"\n"
+"THE ROLES (stored on each person, app_users.role)\n"
+"- Member: files requests, adds/imports mice, manages their own colony.\n"
+"- Manager: all of the above, plus approve/deny requests, transfer ownership, and route to breeding (breeding requests "
+"go to the manager, e.g. Bertha).\n"
+"- PI: same authority as manager, for oversight.\n"
+"\n"
+"HOW DIFFERENT USERS SEE DIFFERENT THINGS\n"
+"- It is the same shared database, but the app shapes each person's view by OWNERSHIP and ROLE:\n"
+"   • 'My colony' and the 'Mine' filter show only the mice you own (responsible_person = you).\n"
+"   • A request auto-routes to the owner of the matching mouse; if none is available it goes to the breeding queue (manager).\n"
+"   • Approve / transfer / route buttons only appear for a Manager or PI (or the request's assignee).\n"
+"   • When notifying, you choose Owner / Managers / PI and only those people are emailed.\n"
+"- Honest point for the lab: today this is a SOFT model — one shared password and one public key, so anyone signed in "
+"can technically view or edit anything. Roles and ownership decide what is shown and who can act, and every change is "
+"recorded in the audit log. If we later want hard per-person permissions, we switch to real logins (magic-link or Google) "
+"and enforce them in Supabase Row-Level Security — with no change to the data.")
 
 out="/home/exx/leelab-colony/docs/Colony_DB_Overview.pptx"; prs.save(out)
 print("saved",out,"slides:",len(prs.slides._sldIdLst))
