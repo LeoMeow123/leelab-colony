@@ -156,6 +156,7 @@
       <button class="tab" data-tab="add">＋ Add cohort</button>
       <button class="tab" data-tab="import">Import</button>
       <button class="tab" data-tab="requests">Requests</button>
+      <button class="tab" data-tab="needs">Mice needed</button>
       <button class="tab" data-tab="myreq">My requests</button>
       <button class="tab" data-tab="people">People</button>
     </div>
@@ -278,9 +279,22 @@
       <span class="sub" id="reqCount" style="color:var(--muted);font-size:12px"></span>
     </div>
     <div class="tablewrap"><table>
-      <thead><tr><th title="bump priority">▲</th><th>Subject</th><th>Needs</th><th>By</th><th>Assignee</th><th>Status</th><th>Date</th></tr></thead>
+      <thead><tr><th title="bump priority">▲</th><th>Type</th><th>Subject</th><th>Needs</th><th>By</th><th>Assignee</th><th>Status</th><th>Date</th></tr></thead>
       <tbody id="reqBody"></tbody>
     </table></div>
+  </div>
+
+  <!-- MICE NEEDED (breeding board) -->
+  <div class="wrap hidden" id="tab-needs">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+      <div><h1 style="font-size:17px;margin:0">Mice needed <span class="em" id="needsHdr"></span></h1>
+      <div class="sub" style="color:var(--muted);font-size:12px">The breeding board — every <b>Request for mice</b> / <b>Breed</b> in one place, so the manager knows what to make. Long-term; click a row for details.</div></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select class="in" id="needsFilter" style="width:auto"><option value="active">Active needs</option><option value="all">All (incl. done / closed)</option></select>
+        <button class="btn p" id="needsNew">＋ Request mice</button>
+      </div>
+    </div>
+    <div id="needsList"></div>
   </div>
 </div>
 
@@ -455,9 +469,10 @@ $('logout').onclick=()=>{ localStorage.removeItem('mc:user'); USER=null; showLog
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>switchTab(t.dataset.tab));
 function switchTab(name){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
-  ['colony','mine','add','import','people','requests','myreq'].forEach(n=>$('tab-'+n).classList.toggle('hidden',n!==name));
+  ['colony','mine','add','import','people','requests','needs','myreq'].forEach(n=>$('tab-'+n).classList.toggle('hidden',n!==name));
   if(name==='people') renderPeople();
   if(name==='requests') renderRequests();
+  if(name==='needs') renderNeeds();
   if(name==='mine') renderMine();
   if(name==='myreq') renderMyReq();
 }
@@ -1298,6 +1313,18 @@ function reqTypeOptions(sel){ let list=REQ_TYPES.slice(); if(sel&&list.indexOf(s
   return '<option value="">— type —</option>'+list.map(t=>`<option${t===sel?' selected':''}>${esc(t)}</option>`).join(''); }
 function reqTypeToggle(){ const w=$('q_needwrap'); if(w) w.open=NEED_TYPES.indexOf($('q_type').value)>=0; }
 window.reqTypeToggle=reqTypeToggle;
+function reqTypeChip(t){ // colored pill so the manager can tell requests apart at a glance
+  if(!t) return '<span class="sub" style="color:var(--muted);font-size:11px">—</span>';
+  const c={'Request for mice':'var(--purple)','Breed':'var(--purple)','Genotype':'var(--accent)','Ear-tag':'var(--green)','Move / relocate':'var(--amber)'};
+  const col=c[t]||'var(--muted)', need=NEED_TYPES.indexOf(t)>=0;
+  return `<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:9px;white-space:nowrap;border:1px solid ${col};color:${col}${need?';background:rgba(124,58,237,.12)':''}">${esc(t)}</span>`; }
+function daysSince(iso){ if(!iso) return null; return Math.floor((Date.now()-new Date(iso).getTime())/86400000); }
+function waitLabel(iso){ const d=daysSince(iso); return d==null?'—':(d<=0?'today':d+' d'); }
+function reqTabsRefresh(){ // re-render whichever request view is showing after a change
+  renderRequests();
+  const at=document.querySelector('.tab.active'), t=at&&at.dataset.tab;
+  if(t==='needs') renderNeeds();
+  if(t==='myreq') renderMyReq(); }
 
 async function renderRequests(){
   const f=$('reqFilter').value;
@@ -1306,11 +1333,12 @@ async function renderRequests(){
   else if(f==='mine') q+='&requester_id=eq.'+USER.id;
   else if(f==='assigned') q+='&or=(assignee_id.eq.'+USER.id+',assignee_ids.cs.{'+USER.id+'})';
   else if(f==='completed') q+='&status=in.(closed,denied,cancelled,approved)';
-  let rows=[]; try{ rows=(await api(q)).data||[]; }catch(e){ $('reqBody').innerHTML=`<tr><td colspan="7" class="empty">Error: ${esc(e.message)}</td></tr>`; return; }
+  let rows=[]; try{ rows=(await api(q)).data||[]; }catch(e){ $('reqBody').innerHTML=`<tr><td colspan="8" class="empty">Error: ${esc(e.message)}</td></tr>`; return; }
   $('reqCount').textContent=rows.length+' request'+(rows.length!==1?'s':'');
-  if(!rows.length){ $('reqBody').innerHTML='<tr><td colspan="7" class="empty">No requests. Click “New request” to ask for mice.</td></tr>'; return; }
+  if(!rows.length){ $('reqBody').innerHTML='<tr><td colspan="8" class="empty">No requests. Click “New request” to ask for mice.</td></tr>'; return; }
   $('reqBody').innerHTML=rows.map(r=>`<tr data-id="${r.id}">
     <td><button class="btn sm" data-bump="${r.id}" data-pri="${r.priority||0}" title="bump priority">▲ ${r.priority||0}</button></td>
+    <td>${reqTypeChip(r.request_type)}</td>
     <td><b>${esc(r.subject)}</b></td>
     <td>${esc(reqNeeds(r))}</td>
     <td>${esc(userName(r.requester_id))}</td>
@@ -1324,7 +1352,39 @@ async function renderRequests(){
     openReq(tr.dataset.id);
   });
 }
-async function bumpReq(id,pri){ try{ await api('requests?id=eq.'+id,{method:'PATCH',body:{priority:pri+1}}); renderRequests(); }catch(e){ toast('Failed: '+e.message); } }
+async function bumpReq(id,pri){ try{ await api('requests?id=eq.'+id,{method:'PATCH',body:{priority:pri+1}}); reqTabsRefresh(); }catch(e){ toast('Failed: '+e.message); } }
+
+// ---------- Mice needed (breeding board) ----------
+async function renderNeeds(){
+  const f=$('needsFilter')?$('needsFilter').value:'active';
+  $('needsList').innerHTML='<div class="sub" style="color:var(--muted)">Loading…</div>';
+  let rows=[]; try{ rows=(await api('requests?select=*')).data||[]; }
+  catch(e){ $('needsList').innerHTML=`<div class="empty">Error: ${esc(e.message)}</div>`; return; }
+  rows=rows.filter(r=>NEED_TYPES.indexOf(r.request_type)>=0); // only "Request for mice" / "Breed" — the long-term needs
+  if(f==='active') rows=rows.filter(r=>['open','routed_to_breeding','fulfilled'].indexOf(r.status)>=0);
+  const rank=s=>({open:0,routed_to_breeding:1,fulfilled:2})[s]!=null?({open:0,routed_to_breeding:1,fulfilled:2})[s]:3;
+  rows.sort((a,b)=>rank(a.status)-rank(b.status) || (b.priority||0)-(a.priority||0) || String(a.created_at||'').localeCompare(String(b.created_at||''))); // open first, then longest-waiting
+  NEEDS=rows;
+  $('needsHdr').textContent=rows.length?('· '+rows.length+(f==='active'?' open':'')):'';
+  if(!rows.length){ $('needsList').innerHTML='<div class="empty">No mice needs right now. When someone files a <b>Request for mice</b> or <b>Breed</b>, it appears here so the breeding manager knows what to make.</div>'; return; }
+  $('needsList').innerHTML=`<div class="tablewrap"><table>
+    <thead><tr><th title="bump priority">▲</th><th>What's needed</th><th>Type</th><th>For / purpose</th><th>Requested by</th><th>Breeder / assignee</th><th>Status</th><th title="how long it's been waiting">Waiting</th></tr></thead>
+    <tbody>${rows.map(r=>{ const active=['open','routed_to_breeding'].indexOf(r.status)>=0, d=daysSince(r.created_at);
+      return `<tr data-open="${esc(r.id)}" style="cursor:pointer">
+      <td><button class="btn sm" data-bump="${r.id}" data-pri="${r.priority||0}" title="bump priority">▲ ${r.priority||0}</button></td>
+      <td><b>${esc(reqNeeds(r))}</b></td>
+      <td>${reqTypeChip(r.request_type)}</td>
+      <td>${esc(r.subject||'')}</td>
+      <td>${esc(userName(r.requester_id))}</td>
+      <td>${esc(assigneeNames(r))}</td>
+      <td>${reqBadge(r.status)}</td>
+      <td style="white-space:nowrap;font-size:12px;color:${(active&&d!=null&&d>=30)?'var(--amber)':'var(--muted)'}">${esc(waitLabel(r.created_at))}</td>
+    </tr>`; }).join('')}</tbody></table></div>`;
+  $('needsList').querySelectorAll('tr[data-open]').forEach(tr=>tr.onclick=e=>{
+    const b=e.target.closest('[data-bump]'); if(b){ e.stopPropagation(); bumpReq(b.dataset.bump,+b.dataset.pri); return; }
+    openReq(tr.dataset.open); });
+}
+let NEEDS=[];
 
 function reqFieldsHtml(r){ r=r||{}; const asel=(r.assignee_ids&&r.assignee_ids.length)?r.assignee_ids:(r.assignee_id?[r.assignee_id]:[]);
   return `
@@ -1348,10 +1408,11 @@ function reqFieldsHtml(r){ r=r||{}; const asel=(r.assignee_ids&&r.assignee_ids.l
       <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:4px">${r.id?'Ticked people are assigned. Editing does <b>not</b> re-send emails — tell anyone new directly.':'Ticked people are assigned to this request. Anyone with an email is emailed; people with “no email” are still assigned, just not emailed.'}</div>
       <div id="q_assignees" style="max-height:190px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px">${assigneePicker(asel)}</div>
     </div>`; }
-function openNewReq(){
+function openNewReq(preType){
+  const seed=(preType&&typeof preType==='string')?{request_type:preType}:null; // e.g. board's "Request mice" pre-picks the type
   $('reqModal').innerHTML=`<h2>New mouse request</h2>
     <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:12px">Ask for specific mice or describe what you need, then pick who to assign it to.</div>
-    ${reqFieldsHtml()}
+    ${reqFieldsHtml(seed)}
     <div class="modal-actions"><button class="btn sm" onclick="__rq.close()">Cancel</button><button class="btn p" onclick="__rq.create()">Submit request</button></div>
     <div class="err" id="q_err"></div>`;
   $('reqOverlay').classList.add('open');
@@ -1417,7 +1478,7 @@ function renderReq(r,cm,tgt){
   const needs=reqNeeds(r);
   $('reqModal').innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:flex-start">
-      <div><h2>${esc(r.subject)}</h2><div class="mid">${r.request_type?esc(r.request_type)+' · ':''}by ${esc(userName(r.requester_id))} · ${esc((r.created_at||'').slice(0,10))}</div></div>
+      <div><h2>${esc(r.subject)}</h2><div class="mid">${r.request_type?reqTypeChip(r.request_type)+' · ':''}by ${esc(userName(r.requester_id))} · ${esc((r.created_at||'').slice(0,10))}</div></div>
       <div style="display:flex;gap:6px">${((r.requester_id===USER.id||canAct(r))&&reqEditable(r))?`<button class="btn sm" onclick="__rq.edit()">Edit</button>`:''}<button class="btn sm" onclick="__rq.close()">✕</button></div>
     </div>
     <div class="kv"><span class="k">Status</span>${reqBadge(r.status)}${r.status==='fulfilled'?'<span class="sub" style="color:var(--muted);font-size:12px;margin-left:8px">awaiting manager to close</span>':''}</div>
@@ -1460,7 +1521,7 @@ window.__rq={
       if(missing.length) notifyMsg+=' · assigned (no email yet): '+missing.join(', ');
       $('reqOverlay').classList.remove('open');
       toast('Request assigned to '+assigneeNames(rec)+notifyMsg);
-      renderRequests();
+      reqTabsRefresh();
     }catch(e){ $('q_err').textContent=e.message; }
   },
   edit:()=>{ if(curReq) openEditReq(curReq); },
@@ -1478,7 +1539,7 @@ window.__rq={
       await audit('requests', id, 'EDIT', null, patch);
       if(curReq) Object.assign(curReq, patch); // keep curReq fresh
       toast('Request updated'); $('reqOverlay').classList.remove('open');
-      renderRequests(); if(document.querySelector('.tab.active')&&document.querySelector('.tab.active').dataset.tab==='myreq') renderMyReq();
+      reqTabsRefresh();
     }catch(e){ $('q_err').textContent=e.message; }
   },
   // lifecycle: open → done(fulfilled) → closed ; plus denied / cancelled / reopen(open) ; transfer = approve+transfer ownership → closed
@@ -1501,8 +1562,7 @@ window.__rq={
     try{ await api('requests?id=eq.'+r.id,{method:'PATCH',body:patch}); await audit('requests',r.id,'STATUS',null,patch);
       if(curReq) Object.assign(curReq, patch);
       toast(kind==='done'?'Marked done — a manager can now close it':(kind==='closed'?'Request closed':(kind==='transfer'?'Transferred & closed':(kind==='open'?'Reopened':'Updated'))));
-      $('reqOverlay').classList.remove('open'); renderRequests();
-      const at=document.querySelector('.tab.active'); if(at&&at.dataset.tab==='myreq') renderMyReq();
+      $('reqOverlay').classList.remove('open'); reqTabsRefresh();
     }catch(e){ toast('Failed: '+e.message); }
   },
   comment:async()=>{
@@ -1511,9 +1571,11 @@ window.__rq={
     catch(e){ toast('Failed: '+e.message); }
   },
 };
-$('newReqBtn').onclick=openNewReq;
+$('newReqBtn').onclick=()=>openNewReq();
 $('reqFilter').onchange=renderRequests;
-$('myreqNew').onclick=openNewReq;
+$('needsFilter').onchange=renderNeeds;
+$('needsNew').onclick=()=>openNewReq('Request for mice');
+$('myreqNew').onclick=()=>openNewReq();
 async function renderMyReq(){
   $('myreqList').innerHTML='<div class="sub" style="color:var(--muted)">Loading…</div>';
   let rows=[]; try{ rows=(await api('requests?requester_id=eq.'+USER.id+'&select=*&order=created_at.desc')).data||[]; }
@@ -1521,8 +1583,9 @@ async function renderMyReq(){
   $('myreqHdr').textContent = rows.length?('· '+rows.length):'';
   if(!rows.length){ $('myreqList').innerHTML='<div class="empty">You haven’t filed any requests yet. Click “＋ New request”.</div>'; return; }
   MYREQ=rows;
-  $('myreqList').innerHTML=`<div class="tablewrap"><table><thead><tr><th>Subject</th><th>Needs</th><th>Assigned to</th><th>Status</th><th>Filed</th><th></th></tr></thead>
+  $('myreqList').innerHTML=`<div class="tablewrap"><table><thead><tr><th>Type</th><th>Subject</th><th>Needs</th><th>Assigned to</th><th>Status</th><th>Filed</th><th></th></tr></thead>
     <tbody>${rows.map((r,i)=>`<tr>
+      <td>${reqTypeChip(r.request_type)}</td>
       <td><b>${esc(r.subject)}</b></td>
       <td>${esc(reqNeeds(r))}</td>
       <td>${esc(assigneeNames(r))}</td>
