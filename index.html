@@ -1301,7 +1301,7 @@ async function renderRequests(){
   if(f==='open') q+='&status=in.(open,fulfilled,routed_to_breeding)'; // active = to-do + done-awaiting-close
   else if(f==='mine') q+='&requester_id=eq.'+USER.id;
   else if(f==='assigned') q+='&or=(assignee_id.eq.'+USER.id+',assignee_ids.cs.{'+USER.id+'})';
-  else if(f==='completed') q+='&status=in.(closed,denied,cancelled)';
+  else if(f==='completed') q+='&status=in.(closed,denied,cancelled,approved)';
   let rows=[]; try{ rows=(await api(q)).data||[]; }catch(e){ $('reqBody').innerHTML=`<tr><td colspan="7" class="empty">Error: ${esc(e.message)}</td></tr>`; return; }
   $('reqCount').textContent=rows.length+' request'+(rows.length!==1?'s':'');
   if(!rows.length){ $('reqBody').innerHTML='<tr><td colspan="7" class="empty">No requests. Click “New request” to ask for mice.</td></tr>'; return; }
@@ -1401,13 +1401,13 @@ async function openReq(id){
 function renderReq(r,cm,tgt){
   const btns=[];
   if(r.status==='open'||r.status==='routed_to_breeding'){
-    if(canAct(r)) btns.push(`<button class="btn g" onclick="__rq.decide('done')">✓ Mark done</button>`);
-    if(r.target_mouse_id&&canAct(r)) btns.push(`<button class="btn" onclick="__rq.decide('transfer')">Approve &amp; transfer</button>`);
+    if(r.target_mouse_id){ if(canAct(r)) btns.push(`<button class="btn g" onclick="__rq.decide('transfer')">Approve &amp; transfer</button>`); } // completion for a specific-mouse request = transfer ownership
+    else if(canAct(r)) btns.push(`<button class="btn g" onclick="__rq.decide('done')">✓ Mark done</button>`);
     if(isMgr()) btns.push(`<button class="btn r" onclick="__rq.decide('denied')">Deny</button>`);
     if(r.requester_id===USER.id) btns.push(`<button class="btn sm" onclick="__rq.decide('cancelled')">Cancel</button>`);
   } else if(r.status==='fulfilled'){ // done — awaiting a manager to close
     if(isMgr()) btns.push(`<button class="btn g" onclick="__rq.decide('closed')">Close (confirm done)</button>`);
-    if(isMgr()) btns.push(`<button class="btn sm" onclick="__rq.decide('open')">Reopen</button>`);
+    if(isMgr()||r.requester_id===USER.id) btns.push(`<button class="btn sm" onclick="__rq.decide('open')">Reopen (not done)</button>`);
   } else if(isMgr()){ btns.push(`<button class="btn sm" onclick="__rq.decide('open')">Reopen</button>`); }
   const actions = btns.length?`<div class="modal-actions">${btns.join('')}</div>`:'';
   const needs=reqNeeds(r);
@@ -1487,7 +1487,7 @@ window.__rq={
         try{ await api('mice?id=eq.'+r.target_mouse_id,{method:'PATCH',body:{responsible_person:r.requester_id,updated_by:USER.id,updated_at:new Date().toISOString()}});
           await audit('mice',r.target_mouse_id,'TRANSFER',null,{to:userName(r.requester_id)}); }
         catch(e){ toast('Transfer failed: '+e.message); return; }
-        patch.decision_note='Ownership transferred to '+userName(r.requester_id);
+        patch.decision_note='Mouse transferred to '+userName(r.requester_id); patch.target_mouse_id=null; // consumed — can't re-transfer on reopen
       }
     } else {
       const st=map[kind]; if(!st)return;
@@ -1496,7 +1496,7 @@ window.__rq={
     }
     try{ await api('requests?id=eq.'+r.id,{method:'PATCH',body:patch}); await audit('requests',r.id,'STATUS',null,patch);
       if(curReq) Object.assign(curReq, patch);
-      toast(kind==='done'?'Marked done — a manager can now close it':(kind==='closed'?'Request closed':'Updated'));
+      toast(kind==='done'?'Marked done — a manager can now close it':(kind==='closed'?'Request closed':(kind==='transfer'?'Transferred & closed':(kind==='open'?'Reopened':'Updated'))));
       $('reqOverlay').classList.remove('open'); renderRequests();
       const at=document.querySelector('.tab.active'); if(at&&at.dataset.tab==='myreq') renderMyReq();
     }catch(e){ toast('Failed: '+e.message); }
@@ -1542,13 +1542,13 @@ function showMigrationBanner(){
   if(document.getElementById('migBanner')) return;
   const d=document.createElement('div'); d.id='migBanner';
   d.style.cssText='position:fixed;top:0;left:0;right:0;z-index:9999;background:var(--amber);color:#fff;padding:8px 14px;font-size:13px;text-align:center;box-shadow:var(--shadow)';
-  d.innerHTML='⚠ Database is missing recent columns. Run the latest <b>migration_00*.sql</b> files (through <b>migration_005.sql</b>) in Supabase → SQL Editor, then reload. (Adding cohorts / requests will fail until then.)';
+  d.innerHTML='⚠ Database is missing recent columns. Run the latest <b>migration_00*.sql</b> files (through the newest one) in Supabase → SQL Editor, then reload. (Adding cohorts / requests will fail until then.)';
   document.body.appendChild(d);
 }
 async function boot(){
   if(!configured()){ showScreen('setup'); if(URLB)$('cfgUrl').value=URLB; return; }
   await loadRefs();
-  try{ await api('mouse_v?select=batch_id,dob_estimated,facility,cage&limit=0'); await api('requests?select=assignee_ids&limit=0'); }catch(_){ showMigrationBanner(); } // a migration hasn't been run yet → warn instead of cryptic save errors
+  try{ await api('mouse_v?select=batch_id,dob_estimated,facility,cage&limit=0'); await api('requests?select=assignee_ids,request_type,mice_info&limit=0'); }catch(_){ showMigrationBanner(); } // a migration hasn't been run yet → warn instead of cryptic save errors
   // populate selects that persist across screens
   $('fOwner').innerHTML='<option value="">any</option>'+USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
   $('fCohort').innerHTML='<option value="">any</option>'+COHORTS.map(c=>`<option>${esc(c)}</option>`).join('');
