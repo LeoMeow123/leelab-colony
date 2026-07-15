@@ -272,7 +272,6 @@
         <option value="open">Open</option>
         <option value="assigned">Assigned to me</option>
         <option value="mine">Mine (I asked)</option>
-        <option value="routed_to_breeding">Breeding queue</option>
         <option value="">All</option>
       </select>
       <span class="sub" id="reqCount" style="color:var(--muted);font-size:12px"></span>
@@ -358,7 +357,8 @@ function roleLabel(r){ return ROLE_LABEL[r]||r||'member'; }
 function assigneeNames(r){ const ids=(r.assignee_ids&&r.assignee_ids.length)?r.assignee_ids:(r.assignee_id?[r.assignee_id]:[]);
   return ids.map(id=>userName(id)||'?').join(', ')||'—'; }
 function ownerOptions(sel){ return '<option value="">—</option>'+USERS.map(u=>`<option value="${u.id}"${u.id===sel?' selected':''}>${esc(u.full_name)}</option>`).join(''); }
-function cohortOptions(sel){ return '<option value="">—</option>'+COHORTS.map(c=>`<option${c===sel?' selected':''}>${esc(c)}</option>`).join(''); }
+function cohortOptions(sel){ let list=COHORTS.slice(); if(sel&&list.indexOf(sel)<0)list=[sel].concat(list); // keep a stored value that's no longer in the vocab so edits don't wipe it
+  return '<option value="">—</option>'+list.map(c=>`<option${c===sel?' selected':''}>${esc(c)}</option>`).join(''); }
 function facilityOptions(sel){ return FACILITIES.map(f=>`<option${f===sel?' selected':''}>${esc(f)}</option>`).join(''); }
 function rangeStr(from,to){ from=(from||'').trim(); to=(to||'').trim(); if(!from&&!to)return null; if(!to||to===from)return from||to; return from+'-'+to; }
 function buildLoc(o){ const p=[]; if(o.facility)p.push(o.facility); if(o.room)p.push('Rm '+o.room); if(o.rack)p.push('Rack '+o.rack);
@@ -1287,6 +1287,7 @@ function reqBadge(s){
 }
 function managerId(){ const m=USERS.find(u=>u.full_name==='Bertha')||USERS.find(u=>u.role==='manager')||USERS.find(u=>u.role==='pi'); return m&&m.id; }
 const canAct=r=>USER&&(USER.role==='manager'||USER.role==='pi'||USER.role==='admin'||USER.id===r.assignee_id||((r.assignee_ids||[]).indexOf(USER.id)>=0));
+const reqEditable=r=>r&&['open','routed_to_breeding'].includes(r.status); // only active requests can be edited/decided
 
 async function renderRequests(){
   const f=$('reqFilter').value;
@@ -1327,8 +1328,8 @@ function reqFieldsHtml(r){ r=r||{}; const asel=(r.assignee_ids&&r.assignee_ids.l
       <div class="field"><label>Age ≥ (wk)</label><input class="in" id="q_agemin" type="number" value="${esc(r.needed_age_min_weeks!=null?r.needed_age_min_weeks:'')}"></div>
       <div class="field"><label>Age ≤ (wk)</label><input class="in" id="q_agemax" type="number" value="${esc(r.needed_age_max_weeks!=null?r.needed_age_max_weeks:'')}"></div>
     </div>
-    <div class="field"><label>Assign &amp; notify — pick one or more people</label>
-      <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:4px">Ticked people are assigned to this request. Anyone with an email is emailed; people with “no email” are still assigned, just not emailed.</div>
+    <div class="field"><label>Assign${r.id?'':' &amp; notify'} — pick one or more people</label>
+      <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:4px">${r.id?'Ticked people are assigned. Editing does <b>not</b> re-send emails — tell anyone new directly.':'Ticked people are assigned to this request. Anyone with an email is emailed; people with “no email” are still assigned, just not emailed.'}</div>
       <div id="q_assignees" style="max-height:190px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px">${assigneePicker(asel)}</div>
     </div>`; }
 function openNewReq(){
@@ -1347,14 +1348,17 @@ function openEditReq(r){
     <div class="err" id="q_err"></div>`;
   $('reqOverlay').classList.add('open');
 }
-function assigneePicker(sel){ sel=sel||[]; let html='';
-  for(const role of ROLE_ORDER){ const people=USERS.filter(u=>u.role===role && u.is_active!==false); if(!people.length)continue;
-    html+=`<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:6px 0 3px">${esc(roleLabel(role))}</div>`;
-    html+=people.map(u=>`<label style="display:flex;align-items:center;gap:7px;font-size:13px;margin-bottom:3px">
+function assigneePicker(sel){ sel=sel||[]; let html=''; const shown=new Set();
+  const grp=t=>`<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:6px 0 3px">${esc(t)}</div>`;
+  const row=u=>`<label style="display:flex;align-items:center;gap:7px;font-size:13px;margin-bottom:3px">
       <input type="checkbox" class="q_asg" value="${esc(u.id)}"${sel.indexOf(u.id)>=0?' checked':''}>
       <span>${esc(u.full_name)}</span>
-      <span style="color:${u.email?'var(--muted)':'var(--amber)'};font-size:11px">${esc(u.email||'no email')}</span></label>`).join('');
-  }
+      <span style="color:${u.email?'var(--muted)':'var(--amber)'};font-size:11px">${esc(u.email||'no email')}</span></label>`;
+  for(const role of ROLE_ORDER){ const people=USERS.filter(u=>u.role===role && u.is_active!==false); if(!people.length)continue;
+    html+=grp(roleLabel(role)); people.forEach(u=>shown.add(u.id)); html+=people.map(row).join(''); }
+  // keep already-assigned people who aren't otherwise listed (deactivated / other role) so an edit can't silently drop them
+  const extra=sel.filter(id=>!shown.has(id)).map(id=>USERS.find(u=>u.id===id)||{id,full_name:(userName(id)||'(unknown)'),email:null});
+  if(extra.length) html+=grp('Already assigned')+extra.map(row).join('');
   return html||'<div class="sub" style="color:var(--muted)">No people yet.</div>'; }
 const EMAIL_RE=/^[^\s@,;"<>]+@[^\s@,;"<>]+\.[^\s@,;"<>]+$/;
 function assigneeEmails(ids){ const set=new Set(), missing=[]; // split assignees into those we can email vs those without an address
@@ -1383,17 +1387,16 @@ async function openReq(id){
   }catch(e){ toast('Load failed: '+e.message); }
 }
 function renderReq(r,cm,tgt){
-  const actions = (canAct(r)&&['open','routed_to_breeding'].includes(r.status)) ? `
+  const actions = (canAct(r)&&reqEditable(r)) ? `
     <div class="modal-actions">
       <button class="btn g" onclick="__rq.decide('approve')">${r.target_mouse_id?'Approve &amp; transfer':'Approve'}</button>
       <button class="btn" onclick="__rq.decide('fulfilled')">Mark fulfilled</button>
       <button class="btn r" onclick="__rq.decide('denied')">Deny</button>
-      ${r.status!=='routed_to_breeding'?`<button class="btn" onclick="__rq.decide('routed_to_breeding')">Route to breeding</button>`:''}
     </div>` : '';
   $('reqModal').innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:flex-start">
       <div><h2>${esc(r.subject)}</h2><div class="mid">by ${esc(userName(r.requester_id))} · ${esc((r.created_at||'').slice(0,10))}</div></div>
-      <div style="display:flex;gap:6px">${(r.requester_id===USER.id||canAct(r))?`<button class="btn sm" onclick="__rq.edit()">Edit</button>`:''}<button class="btn sm" onclick="__rq.close()">✕</button></div>
+      <div style="display:flex;gap:6px">${((r.requester_id===USER.id||canAct(r))&&reqEditable(r))?`<button class="btn sm" onclick="__rq.edit()">Edit</button>`:''}<button class="btn sm" onclick="__rq.close()">✕</button></div>
     </div>
     <div class="kv"><span class="k">Status</span>${reqBadge(r.status)}</div>
     <div class="kv"><span class="k">Assigned to</span><span>${esc(assigneeNames(r))}</span></div>
@@ -1438,6 +1441,7 @@ window.__rq={
   },
   edit:()=>{ if(curReq) openEditReq(curReq); },
   saveEdit:async(id)=>{
+    if(curReq&&!reqEditable(curReq)){ $('q_err').textContent='This request is already '+String(curReq.status).replace(/_/g,' ')+' and can no longer be edited.'; return; }
     const g=id2=>$(id2).value.trim()||null;
     const subj=g('q_subj'); if(!subj){ $('q_err').textContent='Subject required.'; return; }
     const assignees=[...$('reqModal').querySelectorAll('.q_asg:checked')].map(el=>el.value);
@@ -1448,6 +1452,7 @@ window.__rq={
     try{
       await api('requests?id=eq.'+id,{method:'PATCH',body:patch});
       await audit('requests', id, 'EDIT', null, patch);
+      if(curReq) Object.assign(curReq, patch); // keep curReq fresh
       toast('Request updated'); $('reqOverlay').classList.remove('open');
       renderRequests(); if(document.querySelector('.tab.active')&&document.querySelector('.tab.active').dataset.tab==='myreq') renderMyReq();
     }catch(e){ $('q_err').textContent=e.message; }
@@ -1490,7 +1495,7 @@ async function renderMyReq(){
       <td>${esc(assigneeNames(r))}</td>
       <td>${reqBadge(r.status)}</td>
       <td style="white-space:nowrap;font-size:12px;color:var(--muted)">${esc((r.created_at||'').slice(0,10))}</td>
-      <td style="white-space:nowrap"><button class="btn p sm" data-edit="${i}">Edit</button> <button class="btn sm" data-open="${esc(r.id)}">Open</button></td>
+      <td style="white-space:nowrap">${reqEditable(r)?`<button class="btn p sm" data-edit="${i}">Edit</button> `:''}<button class="btn sm" data-open="${esc(r.id)}">Open</button></td>
     </tr>`).join('')}</tbody></table></div>`;
   $('myreqList').querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ curReq=MYREQ[+b.dataset.edit]; openEditReq(curReq); });
   $('myreqList').querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>openReq(b.dataset.open));
