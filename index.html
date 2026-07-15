@@ -269,9 +269,10 @@
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
       <button class="btn p" id="newReqBtn">＋ New request</button>
       <select class="in" id="reqFilter" style="width:auto">
-        <option value="open">Open</option>
+        <option value="open">Active</option>
         <option value="assigned">Assigned to me</option>
         <option value="mine">Mine (I asked)</option>
+        <option value="completed">Completed</option>
         <option value="">All</option>
       </select>
       <span class="sub" id="reqCount" style="color:var(--muted);font-size:12px"></span>
@@ -889,7 +890,8 @@ $('addSave').onclick=async()=>{
     await audit('mice',null,'INSERT_COHORT',null,{cohort,owner:userName(owner),count:total,cages:CAGES.length,batch_id,dob_estimated:dobEst});
     let extra='';
     if(pending>0 && $('c_eartag').checked){
-      await api('requests',{method:'POST',body:[{requester_id:USER.id, subject:`Ear-tag ${pending} ${cohort} mice`,
+      await api('requests',{method:'POST',body:[{requester_id:USER.id, subject:`Ear-tag ${pending} ${cohort} mice`, request_type:'Ear-tag',
+        mice_info:`${cohort} cohort${current_location?' at '+current_location:''}`,
         body:`Pending ear tags — new ${cohort} cohort, ${total} mice in ${CAGES.length} cage(s); ${pending} still need a number.`,
         needed_cohort:cohort, quantity:pending, assignee_id:owner, assignee_ids:[owner], status:'open', priority:0}]});
       extra=` + ear-tag request (${pending})`;
@@ -1139,7 +1141,7 @@ async function impSendHelp(reason){ const file=IMP.file||'(file)', subject='[imp
     if(ex.some(x=>x.subject===subject)){ IMP_REPORTED.add(file); note('A help request for this file is already open — not emailing again.'); return; } }catch(_){}
   try{
     const aid=impAdminId();
-    await api('requests',{method:'POST',body:[{requester_id:USER.id, assignee_id:aid, assignee_ids:aid?[aid]:null, status:'open', priority:1,
+    await api('requests',{method:'POST',body:[{requester_id:USER.id, assignee_id:aid, assignee_ids:aid?[aid]:null, status:'open', priority:1, request_type:'Other',
       subject, body:`The importer couldn't read “${file}”. Reason: ${reason}. File emailed to ${ADMIN_EMAIL} to reshape into an importable CSV.`}]});
     IMP_REPORTED.add(file); toast('Help request logged for Leo'); note('Logged. In the email window, attach “'+file+'” and send.');
   }catch(e){ note('Couldn’t log the request ('+e.message+') — still opening the email; please send it and try again later.'); }
@@ -1282,20 +1284,24 @@ function reqNeeds(r){
   return p.join(' · ')||'—';
 }
 function reqBadge(s){
-  const m={open:'b-alive',approved:'b-alive',fulfilled:'b-alive',denied:'b-dead',cancelled:'b-dead',closed:'b-dead',routed_to_breeding:'b-transferred'};
-  return `<span class="badge ${m[s]||'b-dead'}">${esc(String(s).replace(/_/g,' '))}</span>`;
+  const m={open:'b-alive',fulfilled:'b-transferred',closed:'b-dead',denied:'b-dead',cancelled:'b-dead',approved:'b-alive',routed_to_breeding:'b-transferred'};
+  return `<span class="badge ${m[s]||'b-dead'}">${esc(reqStatusLabel(s))}</span>`;
 }
 function managerId(){ const m=USERS.find(u=>u.full_name==='Bertha')||USERS.find(u=>u.role==='manager')||USERS.find(u=>u.role==='pi'); return m&&m.id; }
 const canAct=r=>USER&&(USER.role==='manager'||USER.role==='pi'||USER.role==='admin'||USER.id===r.assignee_id||((r.assignee_ids||[]).indexOf(USER.id)>=0));
-const reqEditable=r=>r&&['open','routed_to_breeding'].includes(r.status); // only active requests can be edited/decided
+const reqEditable=r=>r&&['open','routed_to_breeding'].includes(r.status); // only active (un-done) requests can be edited
+const REQ_TYPES=['Genotype','Ear-tag','Move / relocate','Provide mice','Breed','Other'];
+const isMgr=()=>USER&&['manager','pi','admin'].indexOf(USER.role)>=0;
+function reqStatusLabel(s){ return s==='fulfilled'?'done':String(s||'').replace(/_/g,' '); }
+function reqTypeOptions(sel){ return '<option value="">— type —</option>'+REQ_TYPES.map(t=>`<option${t===sel?' selected':''}>${esc(t)}</option>`).join(''); }
 
 async function renderRequests(){
   const f=$('reqFilter').value;
   let q='requests?select=*&order=priority.desc,created_at.desc';
-  if(f==='open') q+='&status=in.(open,routed_to_breeding)';
+  if(f==='open') q+='&status=in.(open,fulfilled,routed_to_breeding)'; // active = to-do + done-awaiting-close
   else if(f==='mine') q+='&requester_id=eq.'+USER.id;
   else if(f==='assigned') q+='&or=(assignee_id.eq.'+USER.id+',assignee_ids.cs.{'+USER.id+'})';
-  else if(f==='routed_to_breeding') q+='&status=eq.routed_to_breeding';
+  else if(f==='completed') q+='&status=in.(closed,denied,cancelled)';
   let rows=[]; try{ rows=(await api(q)).data||[]; }catch(e){ $('reqBody').innerHTML=`<tr><td colspan="7" class="empty">Error: ${esc(e.message)}</td></tr>`; return; }
   $('reqCount').textContent=rows.length+' request'+(rows.length!==1?'s':'');
   if(!rows.length){ $('reqBody').innerHTML='<tr><td colspan="7" class="empty">No requests. Click “New request” to ask for mice.</td></tr>'; return; }
@@ -1318,16 +1324,22 @@ async function bumpReq(id,pri){ try{ await api('requests?id=eq.'+id,{method:'PAT
 
 function reqFieldsHtml(r){ r=r||{}; const asel=(r.assignee_ids&&r.assignee_ids.length)?r.assignee_ids:(r.assignee_id?[r.assignee_id]:[]);
   return `
-    <div class="field"><label>Subject</label><input class="in" id="q_subj" value="${esc(r.subject||'')}" placeholder="e.g. 4 APP females for behavior"></div>
-    <div class="field"><label>Why / details</label><textarea class="in" id="q_body" rows="2" placeholder="reason, timeline…">${esc(r.body||'')}</textarea></div>
-    ${r.id?'':`<div class="field"><label>Specific mouse # (optional — blank = request by criteria)</label><input class="in" id="q_mouse" placeholder="mouse number"></div>`}
-    <div class="grid3">
-      <div class="field"><label>Sex</label><select class="in" id="q_sex"><option value="">any</option>${['M','F'].map(x=>`<option${r.needed_sex===x?' selected':''}>${x}</option>`).join('')}</select></div>
-      <div class="field"><label>Genotype</label><select class="in" id="q_cohort">${cohortOptions(r.needed_cohort||'')}</select></div>
-      <div class="field"><label>Quantity</label><input class="in" id="q_qty" type="number" min="1" value="${esc(r.quantity!=null?r.quantity:'')}" placeholder="1"></div>
-      <div class="field"><label>Age ≥ (wk)</label><input class="in" id="q_agemin" type="number" value="${esc(r.needed_age_min_weeks!=null?r.needed_age_min_weeks:'')}"></div>
-      <div class="field"><label>Age ≤ (wk)</label><input class="in" id="q_agemax" type="number" value="${esc(r.needed_age_max_weeks!=null?r.needed_age_max_weeks:'')}"></div>
+    <div class="grid2">
+      <div class="field"><label>Task type</label><select class="in" id="q_type">${reqTypeOptions(r.request_type||'')}</select></div>
+      <div class="field"><label>Subject</label><input class="in" id="q_subj" value="${esc(r.subject||'')}" placeholder="e.g. genotype the new WT cohort"></div>
     </div>
+    <div class="field"><label>Which mice / where <span style="color:var(--muted)">(so the assignee can act)</span></label><textarea class="in" id="q_mice" rows="2" placeholder="tag #s, cage, room — e.g. WT cohort, SAF Rm 40 · Rack 3 · Cage H-L">${esc(r.mice_info||'')}</textarea></div>
+    <div class="field"><label>Details / instructions</label><textarea class="in" id="q_body" rows="2" placeholder="what to do, timeline, notes…">${esc(r.body||'')}</textarea></div>
+    ${r.id?'':`<div class="field"><label>Specific mouse # (optional — for a transfer request)</label><input class="in" id="q_mouse" placeholder="mouse number"></div>`}
+    <details><summary style="cursor:pointer;font-size:13px;color:var(--accent)">“Provide mice” criteria (optional)</summary>
+      <div class="grid3" style="margin-top:6px">
+        <div class="field"><label>Sex</label><select class="in" id="q_sex"><option value="">any</option>${['M','F'].map(x=>`<option${r.needed_sex===x?' selected':''}>${x}</option>`).join('')}</select></div>
+        <div class="field"><label>Genotype</label><select class="in" id="q_cohort">${cohortOptions(r.needed_cohort||'')}</select></div>
+        <div class="field"><label>Quantity</label><input class="in" id="q_qty" type="number" min="1" value="${esc(r.quantity!=null?r.quantity:'')}" placeholder="1"></div>
+        <div class="field"><label>Age ≥ (wk)</label><input class="in" id="q_agemin" type="number" value="${esc(r.needed_age_min_weeks!=null?r.needed_age_min_weeks:'')}"></div>
+        <div class="field"><label>Age ≤ (wk)</label><input class="in" id="q_agemax" type="number" value="${esc(r.needed_age_max_weeks!=null?r.needed_age_max_weeks:'')}"></div>
+      </div>
+    </details>
     <div class="field"><label>Assign${r.id?'':' &amp; notify'} — pick one or more people</label>
       <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:4px">${r.id?'Ticked people are assigned. Editing does <b>not</b> re-send emails — tell anyone new directly.':'Ticked people are assigned to this request. Anyone with an email is emailed; people with “no email” are still assigned, just not emailed.'}</div>
       <div id="q_assignees" style="max-height:190px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px">${assigneePicker(asel)}</div>
@@ -1387,23 +1399,30 @@ async function openReq(id){
   }catch(e){ toast('Load failed: '+e.message); }
 }
 function renderReq(r,cm,tgt){
-  const actions = (canAct(r)&&reqEditable(r)) ? `
-    <div class="modal-actions">
-      <button class="btn g" onclick="__rq.decide('approve')">${r.target_mouse_id?'Approve &amp; transfer':'Approve'}</button>
-      <button class="btn" onclick="__rq.decide('fulfilled')">Mark fulfilled</button>
-      <button class="btn r" onclick="__rq.decide('denied')">Deny</button>
-    </div>` : '';
+  const btns=[];
+  if(r.status==='open'||r.status==='routed_to_breeding'){
+    if(canAct(r)) btns.push(`<button class="btn g" onclick="__rq.decide('done')">✓ Mark done</button>`);
+    if(r.target_mouse_id&&canAct(r)) btns.push(`<button class="btn" onclick="__rq.decide('transfer')">Approve &amp; transfer</button>`);
+    if(isMgr()) btns.push(`<button class="btn r" onclick="__rq.decide('denied')">Deny</button>`);
+    if(r.requester_id===USER.id) btns.push(`<button class="btn sm" onclick="__rq.decide('cancelled')">Cancel</button>`);
+  } else if(r.status==='fulfilled'){ // done — awaiting a manager to close
+    if(isMgr()) btns.push(`<button class="btn g" onclick="__rq.decide('closed')">Close (confirm done)</button>`);
+    if(isMgr()) btns.push(`<button class="btn sm" onclick="__rq.decide('open')">Reopen</button>`);
+  } else if(isMgr()){ btns.push(`<button class="btn sm" onclick="__rq.decide('open')">Reopen</button>`); }
+  const actions = btns.length?`<div class="modal-actions">${btns.join('')}</div>`:'';
+  const needs=reqNeeds(r);
   $('reqModal').innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:flex-start">
-      <div><h2>${esc(r.subject)}</h2><div class="mid">by ${esc(userName(r.requester_id))} · ${esc((r.created_at||'').slice(0,10))}</div></div>
+      <div><h2>${esc(r.subject)}</h2><div class="mid">${r.request_type?esc(r.request_type)+' · ':''}by ${esc(userName(r.requester_id))} · ${esc((r.created_at||'').slice(0,10))}</div></div>
       <div style="display:flex;gap:6px">${((r.requester_id===USER.id||canAct(r))&&reqEditable(r))?`<button class="btn sm" onclick="__rq.edit()">Edit</button>`:''}<button class="btn sm" onclick="__rq.close()">✕</button></div>
     </div>
-    <div class="kv"><span class="k">Status</span>${reqBadge(r.status)}</div>
+    <div class="kv"><span class="k">Status</span>${reqBadge(r.status)}${r.status==='fulfilled'?'<span class="sub" style="color:var(--muted);font-size:12px;margin-left:8px">awaiting manager to close</span>':''}</div>
     <div class="kv"><span class="k">Assigned to</span><span>${esc(assigneeNames(r))}</span></div>
-    <div class="kv"><span class="k">Needs</span><span>${esc(reqNeeds(r))}</span></div>
+    ${r.mice_info?`<div class="kv"><span class="k">Which mice / where</span><span>${esc(r.mice_info)}</span></div>`:''}
+    ${needs&&needs!=='—'?`<div class="kv"><span class="k">Criteria</span><span>${esc(needs)}</span></div>`:''}
     ${tgt?`<div class="kv"><span class="k">Specific mouse</span><span>#${esc(tgt)}</span></div>`:''}
     ${r.body?`<div class="kv"><span class="k">Details</span><span>${esc(r.body)}</span></div>`:''}
-    ${r.decision_note?`<div class="kv"><span class="k">Decision</span><span>${esc(r.decision_note)}</span></div>`:''}
+    ${r.decision_note?`<div class="kv"><span class="k">Note</span><span>${esc(r.decision_note)}</span></div>`:''}
     ${actions}
     <div class="section-h">Comments</div>
     <div>${cm.length?cm.map(c=>`<div class="tl-item"><span class="dt">${esc((c.created_at||'').slice(0,10))}</span><span><b>${esc(userName(c.author_id))}:</b> ${esc(c.body)}</span></div>`).join(''):'<div class="sub" style="color:var(--muted);font-size:12px">No comments yet.</div>'}</div>
@@ -1415,7 +1434,8 @@ window.__rq={
   create:async()=>{
     const g=id=>$(id).value.trim()||null;
     const subj=g('q_subj'); if(!subj){ $('q_err').textContent='Subject required.'; return; }
-    const rec={requester_id:USER.id, subject:subj, body:g('q_body'), needed_sex:g('q_sex'), needed_cohort:g('q_cohort'),
+    const rec={requester_id:USER.id, subject:subj, request_type:g('q_type'), mice_info:g('q_mice'), body:g('q_body'),
+      needed_sex:g('q_sex'), needed_cohort:g('q_cohort'),
       needed_age_min_weeks:g('q_agemin')?+g('q_agemin'):null, needed_age_max_weeks:g('q_agemax')?+g('q_agemax'):null,
       quantity:g('q_qty')?+g('q_qty'):null, priority:0};
     const assignees=[...$('reqModal').querySelectorAll('.q_asg:checked')].map(el=>el.value);
@@ -1446,7 +1466,7 @@ window.__rq={
     const subj=g('q_subj'); if(!subj){ $('q_err').textContent='Subject required.'; return; }
     const assignees=[...$('reqModal').querySelectorAll('.q_asg:checked')].map(el=>el.value);
     if(!assignees.length){ $('q_err').textContent='Pick at least one person to assign this request to.'; return; }
-    const patch={subject:subj, body:g('q_body'), needed_sex:g('q_sex'), needed_cohort:g('q_cohort'),
+    const patch={subject:subj, request_type:g('q_type'), mice_info:g('q_mice'), body:g('q_body'), needed_sex:g('q_sex'), needed_cohort:g('q_cohort'),
       needed_age_min_weeks:g('q_agemin')?+g('q_agemin'):null, needed_age_max_weeks:g('q_agemax')?+g('q_agemax'):null,
       quantity:g('q_qty')?+g('q_qty'):null, assignee_ids:assignees, assignee_id:assignees[0]};
     try{
@@ -1457,20 +1477,29 @@ window.__rq={
       renderRequests(); if(document.querySelector('.tab.active')&&document.querySelector('.tab.active').dataset.tab==='myreq') renderMyReq();
     }catch(e){ $('q_err').textContent=e.message; }
   },
+  // lifecycle: open → done(fulfilled) → closed ; plus denied / cancelled / reopen(open) ; transfer = approve+transfer ownership → closed
   decide:async(kind)=>{
-    const r=curReq; const patch={decided_at:new Date().toISOString()};
-    if(kind==='approve'){
-      patch.status='approved';
+    const r=curReq; const map={done:'fulfilled', closed:'closed', denied:'denied', cancelled:'cancelled', open:'open'};
+    let patch;
+    if(kind==='transfer'){
+      patch={status:'closed', decided_at:new Date().toISOString()};
       if(r.target_mouse_id){
         try{ await api('mice?id=eq.'+r.target_mouse_id,{method:'PATCH',body:{responsible_person:r.requester_id,updated_by:USER.id,updated_at:new Date().toISOString()}});
           await audit('mice',r.target_mouse_id,'TRANSFER',null,{to:userName(r.requester_id)}); }
         catch(e){ toast('Transfer failed: '+e.message); return; }
-        patch.status='fulfilled'; patch.decision_note='Ownership transferred to '+userName(r.requester_id);
+        patch.decision_note='Ownership transferred to '+userName(r.requester_id);
       }
-    } else { patch.status=kind; if(kind==='routed_to_breeding'){ const mid=managerId(); patch.assignee_id=mid||null; patch.assignee_ids=mid?[mid]:null; } }
+    } else {
+      const st=map[kind]; if(!st)return;
+      patch={status:st, decided_at: st==='open'?null:new Date().toISOString()};
+      if(st==='open') patch.decision_note=null; // reopening clears the outcome note
+    }
     try{ await api('requests?id=eq.'+r.id,{method:'PATCH',body:patch}); await audit('requests',r.id,'STATUS',null,patch);
-      toast('Updated'); $('reqOverlay').classList.remove('open'); renderRequests(); }
-    catch(e){ toast('Failed: '+e.message); }
+      if(curReq) Object.assign(curReq, patch);
+      toast(kind==='done'?'Marked done — a manager can now close it':(kind==='closed'?'Request closed':'Updated'));
+      $('reqOverlay').classList.remove('open'); renderRequests();
+      const at=document.querySelector('.tab.active'); if(at&&at.dataset.tab==='myreq') renderMyReq();
+    }catch(e){ toast('Failed: '+e.message); }
   },
   comment:async()=>{
     const b=$('q_comment').value.trim(); if(!b)return;

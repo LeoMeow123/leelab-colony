@@ -120,6 +120,8 @@ create table if not exists requests (
   id uuid primary key default gen_random_uuid(),
   requester_id uuid references app_users(id),
   subject text not null,
+  request_type text,               -- Genotype / Ear-tag / Move / Provide mice / Breed / Other
+  mice_info text,                  -- which mice + where (tags, cage, room)
   body text,
   needed_sex text,
   needed_cohort text,
