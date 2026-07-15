@@ -1290,10 +1290,14 @@ function reqBadge(s){
 function managerId(){ const m=USERS.find(u=>u.full_name==='Bertha')||USERS.find(u=>u.role==='manager')||USERS.find(u=>u.role==='pi'); return m&&m.id; }
 const canAct=r=>USER&&(USER.role==='manager'||USER.role==='pi'||USER.role==='admin'||USER.id===r.assignee_id||((r.assignee_ids||[]).indexOf(USER.id)>=0));
 const reqEditable=r=>r&&['open','routed_to_breeding'].includes(r.status); // only active (un-done) requests can be edited
-const REQ_TYPES=['Genotype','Ear-tag','Move / relocate','Provide mice','Breed','Other'];
+const REQ_TYPES=['Request for mice','Genotype','Ear-tag','Move / relocate','Breed','Other'];
+const NEED_TYPES=['Request for mice','Breed']; // types where "mice needed" criteria matter
 const isMgr=()=>USER&&['manager','pi','admin'].indexOf(USER.role)>=0;
 function reqStatusLabel(s){ return s==='fulfilled'?'done':String(s||'').replace(/_/g,' '); }
-function reqTypeOptions(sel){ return '<option value="">— type —</option>'+REQ_TYPES.map(t=>`<option${t===sel?' selected':''}>${esc(t)}</option>`).join(''); }
+function reqTypeOptions(sel){ let list=REQ_TYPES.slice(); if(sel&&list.indexOf(sel)<0)list=list.concat(sel); // keep a legacy stored type
+  return '<option value="">— type —</option>'+list.map(t=>`<option${t===sel?' selected':''}>${esc(t)}</option>`).join(''); }
+function reqTypeToggle(){ const w=$('q_needwrap'); if(w) w.open=NEED_TYPES.indexOf($('q_type').value)>=0; }
+window.reqTypeToggle=reqTypeToggle;
 
 async function renderRequests(){
   const f=$('reqFilter').value;
@@ -1325,13 +1329,13 @@ async function bumpReq(id,pri){ try{ await api('requests?id=eq.'+id,{method:'PAT
 function reqFieldsHtml(r){ r=r||{}; const asel=(r.assignee_ids&&r.assignee_ids.length)?r.assignee_ids:(r.assignee_id?[r.assignee_id]:[]);
   return `
     <div class="grid2">
-      <div class="field"><label>Task type</label><select class="in" id="q_type">${reqTypeOptions(r.request_type||'')}</select></div>
-      <div class="field"><label>Subject</label><input class="in" id="q_subj" value="${esc(r.subject||'')}" placeholder="e.g. genotype the new WT cohort"></div>
+      <div class="field"><label>Task type</label><select class="in" id="q_type" onchange="reqTypeToggle()">${reqTypeOptions(r.request_type||'')}</select></div>
+      <div class="field"><label>Subject</label><input class="in" id="q_subj" value="${esc(r.subject||'')}" placeholder="e.g. 6 WT males for T-maze cohort"></div>
     </div>
-    <div class="field"><label>Which mice / where <span style="color:var(--muted)">(so the assignee can act)</span></label><textarea class="in" id="q_mice" rows="2" placeholder="tag #s, cage, room — e.g. WT cohort, SAF Rm 40 · Rack 3 · Cage H-L">${esc(r.mice_info||'')}</textarea></div>
-    <div class="field"><label>Details / instructions</label><textarea class="in" id="q_body" rows="2" placeholder="what to do, timeline, notes…">${esc(r.body||'')}</textarea></div>
+    <div class="field"><label>Which mice / where <span style="color:var(--muted)">(existing mice — for genotype / ear-tag / move)</span></label><textarea class="in" id="q_mice" rows="2" placeholder="tag #s, cage, room — e.g. WT cohort, SAF Rm 40 · Rack 3 · Cage H-L">${esc(r.mice_info||'')}</textarea></div>
+    <div class="field"><label>Details / experiment / timeline</label><textarea class="in" id="q_body" rows="2" placeholder="what it's for, the experiment, when you need it by…">${esc(r.body||'')}</textarea></div>
     ${r.id?'':`<div class="field"><label>Specific mouse # (optional — for a transfer request)</label><input class="in" id="q_mouse" placeholder="mouse number"></div>`}
-    <details><summary style="cursor:pointer;font-size:13px;color:var(--accent)">“Provide mice” criteria (optional)</summary>
+    <details id="q_needwrap"${NEED_TYPES.indexOf(r.request_type)>=0?' open':''}><summary style="cursor:pointer;font-size:13px;color:var(--accent)">Mice needed — strain · sex · age · quantity (for “Request for mice” / “Breed”)</summary>
       <div class="grid3" style="margin-top:6px">
         <div class="field"><label>Sex</label><select class="in" id="q_sex"><option value="">any</option>${['M','F'].map(x=>`<option${r.needed_sex===x?' selected':''}>${x}</option>`).join('')}</select></div>
         <div class="field"><label>Genotype</label><select class="in" id="q_cohort">${cohortOptions(r.needed_cohort||'')}</select></div>
