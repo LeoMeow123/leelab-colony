@@ -145,8 +145,23 @@
     .bubble{max-width:min(300px,82vw);text-align:center}
     .bubble:before{left:50%;top:-11px;margin-left:-6px;border-right-color:transparent;border-bottom-color:var(--bg2)}
     .rbtn{flex:1;min-width:64px;padding:8px 6px}
-    header .tabs{gap:4px}
-    .filters{gap:8px}
+    /* top bar: title + user on the first row, tabs FOLD into multiple rows below */
+    header{flex-wrap:wrap;gap:8px;padding:8px 10px}
+    header h1{font-size:14px}
+    header h1 .em{display:none}
+    .who{gap:6px;font-size:11px}
+    .who .pill{display:none}
+    .tabs{order:3;flex-basis:100%;flex-wrap:wrap;gap:6px}
+    .tab{padding:6px 10px;font-size:13px}
+    /* filters: two per row, search full-width */
+    .filters{padding:10px;gap:8px}
+    .filters .f{min-width:0;flex:1 1 44%}
+    .filters .f.grow{flex:1 1 100%}
+    /* tables: tighter cells + momentum scroll */
+    .tablewrap{-webkit-overflow-scrolling:touch}
+    th{padding:7px 8px}
+    td{padding:7px 8px;font-size:12.5px}
+    .card{padding:14px}
   }
   .pager{display:flex;align-items:center;gap:10px;justify-content:flex-end;padding:10px;color:var(--muted);font-size:12px}
   .empty{text-align:center;color:var(--muted);padding:40px}
