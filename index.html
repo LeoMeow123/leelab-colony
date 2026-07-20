@@ -208,9 +208,13 @@
   <div class="wrap hidden" id="tab-mine">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
       <div><h1 style="font-size:17px;margin:0">My colony <span class="em" id="mineHdr"></span></h1>
-      <div class="sub" style="color:var(--muted);font-size:12px">The cohorts you added or own, grouped as you entered them. Click <b>Modify</b> to change a whole cohort at once.</div></div>
-      <div><label style="font-size:12px;color:var(--muted)">Show</label>
-        <select class="in" id="mineScope" style="width:auto;display:inline-block"><option value="both">Added or owned by me</option><option value="owner">Owned by me</option><option value="creator">Added by me</option></select></div>
+      <div class="sub" style="color:var(--muted);font-size:12px">The cohorts you added or own. Click a row to <b>expand into individual mice</b>, or <b>Modify</b> to change a whole group at once.</div></div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <div><label style="font-size:12px;color:var(--muted)">Show</label>
+          <select class="in" id="mineScope" style="width:auto;display:inline-block"><option value="both">Added or owned by me</option><option value="owner">Owned by me</option><option value="creator">Added by me</option></select></div>
+        <div><label style="font-size:12px;color:var(--muted)">Separate by</label>
+          <select class="in" id="mineSplit" style="width:auto;display:inline-block"><option value="batch">Cohort (as entered)</option><option value="genotype">Genotype</option><option value="age">Age (DOB)</option><option value="status">Status</option></select></div>
+      </div>
     </div>
     <div id="mineList"></div>
   </div>
@@ -968,6 +972,13 @@ function mineWhere(){ const me=USER&&USER.id; if(!me) return null;
   if(s==='owner') return 'responsible_person=eq.'+me;
   if(s==='creator') return 'created_by=eq.'+me;
   return `or=(responsible_person.eq.${me},created_by.eq.${me})`; }
+let MINE_SPLIT='batch';
+function mineUniq(arr){ const s=[...new Set(arr.map(x=>(x==null||x==='')?'∅':x))]; return s.length!==1?`mixed (${s.length})`:(s[0]==='∅'?'—':esc(s[0])); }
+function ageRangeStr(ms){ const a=ms.map(m=>m.age_months).filter(v=>v!=null); if(!a.length)return '—';
+  const mn=Math.min(...a), mx=Math.max(...a), est=ms.some(m=>m.dob_estimated)?'~':'';
+  return mn===mx?`${est}${mn} mo`:`${est}${mn}–${mx} mo`; } // range when a cohort spans ages
+function mineGroupKey(m){ if(MINE_SPLIT==='genotype')return 'g¦'+(m.cohort||''); if(MINE_SPLIT==='age')return 'a¦'+(m.dob||''); if(MINE_SPLIT==='status')return 's¦'+(m.status||'');
+  return m.batch_id||('nb¦'+m.cohort+'¦'+m.genotype_label+'¦'+m.dob); }
 async function renderMine(){
   const where=mineWhere();
   if(!where){ $('mineList').innerHTML='<div class="empty">Log in to see your colony.</div>'; return; }
@@ -978,12 +989,13 @@ async function renderMine(){
     $('mineHdr').textContent = rows.length?('· '+rows.length+' mice'):'';
     if(!rows.length){ $('mineList').innerHTML='<div class="empty">No mice yet. Add one in the “＋ Add cohort” tab.</div>'; return; }
     const groups=new Map();
-    rows.forEach(m=>{ const k=m.batch_id||('nb¦'+m.cohort+'¦'+m.genotype_label+'¦'+m.dob); if(!groups.has(k))groups.set(k,[]); groups.get(k).push(m); });
+    rows.forEach(m=>{ const k=mineGroupKey(m); if(!groups.has(k))groups.set(k,[]); groups.get(k).push(m); });
     MINE_GROUPS={};
     let html=`<div id="mineBulkBar" style="display:none;align-items:center;gap:10px;background:var(--bg2);border:1px solid var(--red);border-radius:10px;padding:8px 12px;margin-bottom:10px">
-        <b id="mineSelCount">0</b><span class="sub" style="color:var(--muted);font-size:12px">cohort(s) selected</span>
+        <b id="mineSelCount">0</b><span class="sub" style="color:var(--muted);font-size:12px">group(s) selected</span>
         <button class="btn r sm" id="mineDelSel">Delete selected</button>
         <button class="btn sm" id="mineSelClear">Clear</button></div>
+      <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:6px">${groups.size} group(s) · click a row to expand into individual mice.</div>
       <div class="tablewrap"><table><thead><tr><th class="selcol"><input type="checkbox" id="mineSelAll" title="select all"></th><th>Genotype</th><th>Strain</th><th>Mice</th><th>Age</th><th>Location</th><th>Status</th><th>Experiments</th><th>Added</th><th></th></tr></thead><tbody>`;
     let gi=0;
     for(const ms of groups.values()){
@@ -993,22 +1005,35 @@ async function renderMine(){
       const pend=ms.filter(m=>!m.tag_id).length;
       const exps=dedupCI(ms.flatMap(m=>(m.experiments||'').split(',').map(s=>s.trim()).filter(Boolean)));
       const stat=[...new Set(ms.map(m=>m.status))];
-      html+=`<tr>
+      html+=`<tr class="grp" data-gi="${gi}">
         <td class="selcol"><input type="checkbox" class="minesel" data-gi="${gi}"></td>
-        <td class="cohort">${esc(g.cohort||'—')}</td>
-        <td>${esc(g.genotype_label||'—')}</td>
+        <td class="cohort"><span class="caret">▸</span> ${mineUniq(ms.map(m=>m.cohort))}</td>
+        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${mineUniq(ms.map(m=>m.genotype_label))}</td>
         <td style="white-space:nowrap"><b>${ms.length}</b> <span style="color:var(--muted);font-size:11px">${esc(sexes)}</span>${pend?` <span style="color:var(--amber);font-size:11px">${pend} pend</span>`:''}</td>
-        <td style="white-space:nowrap">${g.age_months!=null?(g.dob_estimated?'~':'')+g.age_months+' mo':'—'}</td>
+        <td style="white-space:nowrap">${esc(ageRangeStr(ms))}</td>
         <td style="max-width:190px;overflow:hidden;text-overflow:ellipsis" title="${esc(locs.join('  |  '))}">${esc(locSummary(ms))}</td>
         <td style="white-space:nowrap">${stat.map(s=>`<span class="badge b-${esc(s)}">${esc(s)}</span>`).join(' ')}</td>
         <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis" title="${esc(exps.join(', '))}">${exps.length?esc(exps.join(', ')):'—'}</td>
         <td style="white-space:nowrap;font-size:12px;color:var(--muted)">${esc((g.created_at||'').slice(0,10))}</td>
         <td style="white-space:nowrap"><button class="btn p sm" onclick="__cohort.open(${gi})">Modify</button> <button class="btn r sm" onclick="__cohort.del(${gi})">Delete</button></td>
       </tr>`;
+      html+=ms.map(m=>`<tr class="member mine-g-${gi} hidden" data-id="${esc(m.id)}">
+        <td class="selcol"></td>
+        <td colspan="3" style="padding-left:26px">↳ <b>${esc(m.tag_id||'(pending)')}</b> <span style="color:var(--muted);font-size:11px">${esc(m.sex||'')}${m.cohort?' · '+esc(m.cohort):''}${m.genotype_label?' · '+esc(m.genotype_label):''}</span></td>
+        <td style="white-space:nowrap">${m.age_months!=null?(m.dob_estimated?'~':'')+m.age_months+' mo':'—'}</td>
+        <td style="max-width:190px;overflow:hidden;text-overflow:ellipsis">${esc(m.current_location||'')}</td>
+        <td><span class="badge b-${esc(m.status)}">${esc(m.status)}</span></td>
+        <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis">${esc(m.experiments||'')}</td>
+        <td colspan="2" style="text-align:right"><button class="btn sm" data-open="${esc(m.id)}">Open</button></td>
+      </tr>`).join('');
       gi++;
     }
     html+='</tbody></table></div>';
     $('mineList').innerHTML=html;
+    $('mineList').querySelectorAll('tr.grp').forEach(tr=>tr.onclick=e=>{ if(e.target.closest('button')||e.target.closest('input'))return; // clicks on Modify/Delete/checkbox don't toggle
+      tr.classList.toggle('open'); $('mineList').querySelectorAll('.mine-g-'+tr.dataset.gi).forEach(r=>r.classList.toggle('hidden')); });
+    $('mineList').querySelectorAll('tr.member').forEach(tr=>tr.onclick=e=>{ if(e.target.closest('button'))return; openDetail(tr.dataset.id); });
+    $('mineList').querySelectorAll('tr.member [data-open]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); openDetail(b.dataset.open); });
     $('mineList').querySelectorAll('.minesel').forEach(cb=>cb.onchange=syncMineBulk);
     $('mineSelAll').onchange=()=>{ const on=$('mineSelAll').checked; $('mineList').querySelectorAll('.minesel').forEach(cb=>cb.checked=on); syncMineBulk(); };
     $('mineSelClear').onclick=()=>{ $('mineList').querySelectorAll('.minesel').forEach(cb=>cb.checked=false); $('mineSelAll').checked=false; syncMineBulk(); };
@@ -1021,6 +1046,7 @@ function syncMineBulk(){ const boxes=[...$('mineList').querySelectorAll('.minese
   const c=$('mineSelCount'); if(c) c.textContent=checked.length;
   const sa=$('mineSelAll'); if(sa){ sa.checked=boxes.length>0&&checked.length===boxes.length; sa.indeterminate=checked.length>0&&checked.length<boxes.length; } }
 if($('mineScope')) $('mineScope').onchange=renderMine;
+if($('mineSplit')) $('mineSplit').onchange=()=>{ MINE_SPLIT=$('mineSplit').value; renderMine(); };
 window.__cohort={
   open:(gi)=>{ const ms=MINE_GROUPS[gi]; if(!ms)return; const g=ms[0];
     $('cohortModal').innerHTML=`
@@ -1197,7 +1223,9 @@ function impParseDate(s){ s=(s||'').trim(); if(!s)return null;
   return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 }
 function impSex(s){ s=(s||'').trim().toLowerCase(); if(s==='m'||s==='male')return 'M'; if(s==='f'||s==='female')return 'F'; return s?'U':null; }
-function impStatus(s){ s=(s||'').trim().toLowerCase(); if(!s)return 'healthy'; if(s==='alive')return 'healthy'; if(STATUSES.indexOf(s)>=0)return s;
+function impStatus(s){ s=(s||'').trim().toLowerCase(); if(!s)return 'healthy';
+  if(s==='alive'||s==='active'||s==='live')return 'healthy'; if(s==='inactive')return 'dead'; // some sheets use active/inactive for live/dead
+  if(STATUSES.indexOf(s)>=0)return s;
   if(/sacrific|euth|cull|kill/.test(s))return 'sacrificed';
   if(/dead|decease|\bdied\b|expired/.test(s))return 'dead';
   if(/disease|sick|\bill\b|unwell/.test(s))return 'diseased';
@@ -1363,7 +1391,10 @@ async function impDoImport(){
     for(let i=IMP._done;i<rows.length;i+=100){ await api('mice',{method:'POST',headers:{Prefer:'return=minimal'},body:rows.slice(i,Math.min(i+100,rows.length))}); IMP._done=Math.min(i+100,rows.length); $('impErr').textContent=`Imported ${IMP._done}/${rows.length}…`; }
     await audit('mice',null,'IMPORT',null,{source:IMP.file,count:IMP._done,batch_id});
     toast(`Imported ${IMP._done} mice`); IMP={headers:[],data:[],fieldMap:{},file:''}; $('impFile').value='';
-    $('impStep').innerHTML='<div class="sub" style="color:var(--green)">✓ Imported. Opening the colony…</div>'; switchTab('colony'); page=0; loadColony();
+    $('impStep').innerHTML='<div class="sub" style="color:var(--green)">✓ Imported. Opening the colony…</div>';
+    // show ALL statuses so imported mice that aren't "healthy" (e.g. inactive/dead) still appear — the default healthy filter was hiding them
+    if($('fStatus')) $('fStatus').value=''; if($('fSearch')) $('fSearch').value=''; if($('fOwner')) $('fOwner').value=''; syncMine();
+    switchTab('colony'); page=0; loadColony();
   }catch(e){ $('impGo').disabled=false;
     try{ await audit('mice',null,'IMPORT_PARTIAL',null,{source:IMP.file,count:IMP._done,batch_id}); }catch(_){}
     $('impErr').innerHTML=`Imported ${IMP._done}/${rows.length} before an error: ${esc(e.message)}. Fix the data and click Import again to continue (same batch ${esc(batch_id.slice(0,8))}) — already-imported rows won't be duplicated.`;
