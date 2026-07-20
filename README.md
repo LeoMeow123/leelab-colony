@@ -16,12 +16,18 @@ breeding board** and automatic email, an **🕯️ In Memoriam** memorial for de
 mice, a **😇 Guardian Angels** wall of the lab’s pets, CSV export, people admin,
 and a full audit log.
 
-## Login model (kept deliberately simple)
-Everyone picks their **name** from a dropdown and types **one shared lab
-password**. Your name is attached to every edit (audit trail). This is a *soft*
-gate for internal use — it is not per-user security, and anyone with the link +
-password + the public key can edit. When you want real accounts later, we swap in
-Supabase Auth (magic-link or Google SSO) **without changing the schema**.
+## Login model
+Everyone picks their **name** and types **their own password**. New people sign in
+with the **default password once**, then are **forced to set a personal password**
+so no one can log into someone else's account. The **Web-maintainer** has two
+backdoors: **"Log in as →"** impersonation from People (no shared secret, audited)
+and a **master password** that works on any account (break-glass). Every edit is
+attributed (audit trail).
+
+This is still a *soft* gate for internal use: the password hashes live in a table
+the public key can read (unsalted SHA-256), so a technical person could bypass the
+UI — it's access hygiene, not a vault. For **hard** per-user security, swap in
+Supabase Auth (magic-link / Google SSO) later **without changing the schema**.
 
 ## Roles & permissions
 Four roles: **Member**, **Manager**, **PI**, and **Web-maintainer** (full access).
@@ -34,7 +40,7 @@ in Supabase Auth + RLS later makes it hard enforcement **without schema changes*
 1. **Create a Supabase project** (supabase.com → New project; free tier is fine for now). Pick a region near Salk (West US).
 2. **Run the schema:** Supabase → SQL Editor → New query → paste all of `schema.sql` → Run. (Run it once.) `schema.sql` already includes the latest columns; **on an existing project, run the `migration_00*.sql` files in order** (001 cohort columns, 002 delete policy, 003 experiments + health status, 004 cage,
 005 Web-maintainer role + multi-assignee requests, 006 request type + which-mice info,
-   007 'collected' status + Guardian Angels pet table) — each is safe to re-run, and the app shows a banner if any is missing.
+   007 'collected' status + Guardian Angels pet table, 008 per-user + master passwords) — each is safe to re-run, and the app shows a banner if any is missing. (The app degrades gracefully until a migration is run — e.g. login falls back to the shared password until 008 is applied.)
 3. **Add people:** either in the app's **People** tab after logging in, or in SQL:
    ```sql
    insert into app_users (full_name, role) values

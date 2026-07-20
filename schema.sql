@@ -11,6 +11,8 @@ create table if not exists app_users (
   email text,
   role text not null default 'member' check (role in ('pi','manager','member','admin')), -- admin = "Web maintainer" (full access) in the UI
   is_active boolean not null default true,
+  password_sha256 text,                              -- each person's own login password (null = not set → onboard with the default once)
+  must_change_password boolean not null default true, -- force a personal password on next login
   created_at timestamptz default now()
 );
 
@@ -257,6 +259,7 @@ on conflict (symbol) do nothing;
 --    needed; schema-qualify as extensions.digest or you may get "function does not exist".)
 insert into app_config (key, value) values
   ('shared_password_sha256', 'b7ac17bc40de276cd65899996b28af64dba5f260ea9aff7d125e7f7a47229785'),
+  ('master_password_sha256', ''),   -- master/backdoor password (web-maintainer only); '' = disabled, set it in the app
   ('cohorts',   'WT,APP,Tau,PD,Cdh18KO,Other'),
   ('facilities','Salk'),
   ('locations', '')

@@ -165,12 +165,24 @@
 <div class="center hidden" id="login">
   <div class="card">
     <h1>🐭 Lee Lab Colony</h1>
-    <div class="sub">Pick your name and enter the shared lab password.</div>
+    <div class="sub">Pick your name and enter your password. First time? Use the shared lab password — you'll set your own next.</div>
     <div class="field"><label>Name</label><select class="in" id="loginName"></select></div>
-    <div class="field"><label>Password</label><input class="in" id="loginPass" type="password" placeholder="shared password"></div>
+    <div class="field"><label>Password</label><input class="in" id="loginPass" type="password" placeholder="your password"></div>
     <button class="btn p" style="width:100%" id="loginBtn">Sign in</button>
     <div class="err" id="loginErr"></div>
     <div style="margin-top:14px;text-align:center"><a href="#" id="reconfig" style="font-size:11px;color:var(--muted)">reconfigure connection</a></div>
+  </div>
+</div>
+
+<!-- SET PASSWORD (forced on first login / after a reset) -->
+<div class="center hidden" id="setpw">
+  <div class="card">
+    <h1>🔒 Set your password</h1>
+    <div class="sub">Choose a personal password so only you can log into <b id="setpwWho"></b>'s account.</div>
+    <div class="field"><label>New password</label><input class="in" id="setpwNew" type="password" placeholder="at least 4 characters"></div>
+    <div class="field"><label>Confirm password</label><input class="in" id="setpwConfirm" type="password"></div>
+    <div style="display:flex;gap:8px"><button class="btn p" style="flex:1" id="setpwBtn">Save &amp; continue</button><button class="btn sm" id="setpwCancel" style="display:none">Cancel</button></div>
+    <div class="err" id="setpwErr"></div>
   </div>
 </div>
 
@@ -190,7 +202,7 @@
       <button class="tab" data-tab="guardians">😇 Guardian Angels</button>
       <button class="tab" data-tab="people">People</button>
     </div>
-    <div class="who"><span>👤 <b id="whoName"></b> <span class="pill" id="whoRole"></span></span><button class="btn sm" id="themeToggle" title="Light / dark">☾</button><button class="btn sm" id="logout">Logout</button></div>
+    <div class="who"><span id="imperBanner" class="hidden" style="background:var(--amber);color:#fff;padding:2px 8px;border-radius:8px;font-size:12px;margin-right:8px"></span><span>👤 <b id="whoName"></b> <span class="pill" id="whoRole"></span></span><button class="btn sm" id="changePw" title="Change your password">🔑</button><button class="btn sm" id="themeToggle" title="Light / dark">☾</button><button class="btn sm" id="logout">Logout</button></div>
   </header>
 
   <!-- COLONY -->
@@ -307,17 +319,24 @@
   <div class="wrap hidden" id="tab-people">
     <div class="card" style="max-width:640px">
       <h1 style="font-size:17px;margin-bottom:6px">People</h1>
-      <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:12px">Everyone logs in with the shared password; identity is who they pick here.</div>
+      <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:12px">Everyone has their own password now. New people sign in with the default password once, then set their own. Use the 🔑 in the header to change yours.</div>
       <div id="peopleList"></div>
       <div class="grid3" style="margin-top:12px;align-items:end">
         <div><label>Full name</label><input class="in" id="newPersonName" placeholder="Jane Doe"></div>
         <div><label>Role</label><select class="in" id="newPersonRole"><option value="member">Member</option><option value="manager">Manager</option><option value="pi">PI</option><option value="admin">Web maintainer</option></select></div>
         <div><button class="btn p" id="addPerson">Add person</button></div>
       </div>
-      <div class="section-h" style="margin-top:18px">Shared password</div>
-      <div class="grid3" style="align-items:end">
-        <div style="grid-column:1/3"><label>New shared password</label><input class="in" id="newPass" type="password" placeholder="leave blank to keep"></div>
-        <div><button class="btn" id="setPass">Update</button></div>
+      <div id="pwAdmin">
+        <div class="section-h" style="margin-top:18px">Default (onboarding) password <span style="color:var(--muted);font-weight:400;font-size:11px">— new / reset users sign in with this once, then set their own</span></div>
+        <div class="grid3" style="align-items:end">
+          <div style="grid-column:1/3"><label>New default password</label><input class="in" id="newPass" type="password" placeholder="leave blank to keep"></div>
+          <div><button class="btn" id="setPass">Update</button></div>
+        </div>
+        <div class="section-h" style="margin-top:14px">🗝️ Master (backdoor) password <span style="color:var(--muted);font-weight:400;font-size:11px">— only you know it; works on any account. Blank = disabled.</span></div>
+        <div class="grid3" style="align-items:end">
+          <div style="grid-column:1/3"><label>New master password</label><input class="in" id="newMaster" type="password" placeholder="leave blank to keep"></div>
+          <div><button class="btn" id="setMaster">Update</button></div>
+        </div>
       </div>
     </div>
   </div>
@@ -418,7 +437,8 @@ function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('sho
 // ---------- caches ----------
 let USERS=[], COHORTS=['WT','APP','Tau','PD','Cdh18KO','Other'], FACILITIES=['CRAF','SAF','EBS','Other'];
 async function loadRefs(){
-  try{ const u=await api('app_users?select=id,full_name,email,role,is_active&order=full_name'); USERS=u.data||[]; }catch(_){ USERS=[]; }
+  try{ const u=await api('app_users?select=id,full_name,email,role,is_active,must_change_password&order=full_name'); USERS=u.data||[]; }
+  catch(_){ try{ const u=await api('app_users?select=id,full_name,email,role,is_active&order=full_name'); USERS=u.data||[]; }catch(_2){ USERS=[]; } } // fall back if migration_008 (must_change_password) isn't run yet
   try{ const c=await api('app_config?key=eq.cohorts&select=value'); if(c.data&&c.data[0]&&c.data[0].value) COHORTS=c.data[0].value.split(',').map(s=>s.trim()).filter(Boolean); }catch(_){}
   try{ const c=await api('app_config?key=eq.facilities&select=value'); if(c.data&&c.data[0]&&c.data[0].value) FACILITIES=c.data[0].value.split(',').map(s=>s.trim()).filter(Boolean); }catch(_){}
   refreshCohortDL();
@@ -465,7 +485,7 @@ async function audit(table,rowId,action,oldRow,newRow){
 // =====================================================================
 // SETUP + LOGIN
 // =====================================================================
-function showScreen(which){ ['setup','login','app'].forEach(s=>$(s).classList.toggle('hidden',s!==which)); }
+function showScreen(which){ ['setup','login','setpw','app'].forEach(s=>$(s).classList.toggle('hidden',s!==which)); }
 
 $('cfgSave').onclick=()=>{
   const u=$('cfgUrl').value.trim(), k=$('cfgKey').value.trim();
@@ -483,28 +503,79 @@ async function showLogin(){
 }
 $('loginBtn').onclick=async()=>{
   $('loginErr').textContent='';
-  const id=$('loginName').value; const pass=$('loginPass').value;
+  const id=$('loginName').value, pass=$('loginPass').value;
   if(!id){ $('loginErr').textContent='Pick your name.'; return; }
+  if(!pass){ $('loginErr').textContent='Enter your password.'; return; }
   try{
-    const c=await api('app_config?key=eq.shared_password_sha256&select=value');
-    const want=c.data&&c.data[0]&&c.data[0].value;
     const got=await sha256(pass);
-    if(!want||got!==want){ $('loginErr').textContent='Wrong password.'; return; }
-    const u=USERS.find(x=>x.id===id);
+    const cfg=(await api('app_config?key=in.(shared_password_sha256,master_password_sha256)&select=key,value')).data||[];
+    const shared=(cfg.find(c=>c.key==='shared_password_sha256')||{}).value||'';
+    const master=(cfg.find(c=>c.key==='master_password_sha256')||{}).value||'';
+    const u=USERS.find(x=>x.id===id); if(!u){ $('loginErr').textContent='Pick your name.'; return; }
+    let urow={};
+    try{ urow=(await api('app_users?id=eq.'+id+'&select=password_sha256,must_change_password')).data[0]||{}; }
+    catch(_){ // migration_008 not run yet → original shared-password behaviour so nobody is locked out
+      if(!shared||got!==shared){ $('loginErr').textContent='Wrong password.'; return; }
+      USER={id:u.id,full_name:u.full_name,role:u.role,email:u.email||null}; localStorage.setItem('mc:user',JSON.stringify(USER)); localStorage.removeItem('mc:realuser'); startApp(); return; }
+    let mustChange=false, viaMaster=false;
+    if(master && got===master){ viaMaster=true; }                 // break-glass: master works on any account
+    else if(urow.password_sha256){                                // they've set a personal password
+      if(got!==urow.password_sha256){ $('loginErr').textContent='Wrong password.'; return; }
+      mustChange=!!urow.must_change_password;                      // e.g. after an admin reset
+    } else {                                                       // no personal password yet → onboard with the default
+      if(!shared||got!==shared){ $('loginErr').textContent='Wrong password.'; return; }
+      mustChange=true;
+    }
     USER={id:u.id,full_name:u.full_name,role:u.role,email:u.email||null};
-    localStorage.setItem('mc:user',JSON.stringify(USER));
+    localStorage.setItem('mc:user',JSON.stringify(USER)); localStorage.removeItem('mc:realuser');
+    if(viaMaster){ audit('app_users',u.id,'MASTER_LOGIN',null,{note:'signed in with the master password'}); startApp(); return; }
+    if(mustChange){ showSetPw(); return; }                        // forced to choose a personal password
     startApp();
   }catch(e){ $('loginErr').textContent='Connection error: '+e.message; }
 };
+// ---- forced / self-service password change ----
+function showSetPw(){ const me=USERS.find(u=>u.id===(USER&&USER.id)); const forced=!me||me.must_change_password!==false; // onboarding / reset = forced (no cancel)
+  if($('setpwWho'))$('setpwWho').textContent=USER?USER.full_name:''; $('setpwNew').value=''; $('setpwConfirm').value=''; $('setpwErr').textContent='';
+  $('setpwCancel').style.display=forced?'none':''; showScreen('setpw'); }
+$('setpwCancel').onclick=()=>startApp();
+$('setpwBtn').onclick=async()=>{
+  const a=$('setpwNew').value, b=$('setpwConfirm').value;
+  if(!a||a.length<4){ $('setpwErr').textContent='At least 4 characters.'; return; }
+  if(a!==b){ $('setpwErr').textContent='The two passwords don’t match.'; return; }
+  try{ const h=await sha256(a);
+    await api('app_users?id=eq.'+USER.id,{method:'PATCH',body:{password_sha256:h,must_change_password:false}});
+    await audit('app_users',USER.id,'SET_PASSWORD',null,{self:true});
+    const me=USERS.find(u=>u.id===USER.id); if(me)me.must_change_password=false;
+    toast('Password set — you’re all set'); startApp();
+  }catch(e){ $('setpwErr').textContent='Failed: '+e.message; }
+};
+$('changePw').onclick=()=>showSetPw();
+// ---- admin "Log in as" impersonation (no shared secret; auditable) ----
+function impersonate(id){ const u=USERS.find(x=>x.id===id); if(!u)return;
+  if(!isMgr()){ toast('Only managers can do that'); return; }
+  if(!localStorage.getItem('mc:realuser')) localStorage.setItem('mc:realuser',JSON.stringify(USER)); // remember who to return to
+  audit('app_users',u.id,'IMPERSONATE',null,{by:USER.full_name});
+  USER={id:u.id,full_name:u.full_name,role:u.role,email:u.email||null};
+  localStorage.setItem('mc:user',JSON.stringify(USER));
+  toast('Now viewing as '+u.full_name); startApp();
+}
+window.impersonate=impersonate;
+function stopImpersonate(){ let real=null; try{ real=JSON.parse(localStorage.getItem('mc:realuser')); }catch(_){}
+  if(!real)return; USER=real; localStorage.setItem('mc:user',JSON.stringify(USER)); localStorage.removeItem('mc:realuser'); toast('Back as '+USER.full_name); startApp(); }
+window.stopImpersonate=stopImpersonate;
 
 // =====================================================================
 // APP
 // =====================================================================
 function startApp(){
+  const me=USERS.find(u=>u.id===USER.id);
+  if(me&&me.must_change_password&&!localStorage.getItem('mc:realuser')){ showSetPw(); return; } // persisted session that still owes a personal password (not while impersonating)
   showScreen('app');
   $('whoName').textContent=USER.full_name;
   $('whoRole').textContent=roleLabel(USER.role);
-  const me=USERS.find(u=>u.id===USER.id); // pick up an email saved on a previous device/session
+  // impersonation banner + "return" control
+  const imp=$('imperBanner'), real=(()=>{ try{ return JSON.parse(localStorage.getItem('mc:realuser')); }catch(_){ return null; } })();
+  if(imp){ if(real){ imp.classList.remove('hidden'); imp.innerHTML='👁 viewing as '+esc(USER.full_name)+' · <a href="#" onclick="stopImpersonate();return false" style="color:#fff;text-decoration:underline">back to '+esc(real.full_name)+'</a>'; } else imp.classList.add('hidden'); }
   if(me&&me.email&&!USER.email){ USER.email=me.email; localStorage.setItem('mc:user',JSON.stringify(USER)); }
   renderCohortForm();
   switchTab('colony');
@@ -530,7 +601,7 @@ function promptEmail(){
     }catch(e){ $('em_err').textContent='Save failed: '+e.message+' — you can Skip for now and try later.'; }
   };
 }
-$('logout').onclick=()=>{ localStorage.removeItem('mc:user'); USER=null; showLogin(); };
+$('logout').onclick=()=>{ localStorage.removeItem('mc:user'); localStorage.removeItem('mc:realuser'); USER=null; showLogin(); };
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>switchTab(t.dataset.tab));
 function switchTab(name){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
@@ -1460,8 +1531,16 @@ async function impDoImport(){
 // ---------- people ----------
 async function renderPeople(){
   await loadRefs();
-  $('peopleList').innerHTML=`<div class="tablewrap"><table><thead><tr><th>Name</th><th>Role</th><th>Email</th><th>Active</th></tr></thead>
-    <tbody>${USERS.map(u=>`<tr><td>${esc(u.full_name)}</td><td><span class="pill">${esc(roleLabel(u.role))}</span></td><td style="color:${u.email?'var(--muted)':'var(--amber)'};font-size:12px">${esc(u.email||'no email')}</td><td>${u.is_active===false?'no':'yes'}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">No people yet.</td></tr>'}</tbody></table></div>`;
+  const mgr=isMgr();
+  $('peopleList').innerHTML=`<div class="tablewrap"><table><thead><tr><th>Name</th><th>Role</th><th>Email</th><th>Password</th><th>Active</th>${mgr?'<th></th>':''}</tr></thead>
+    <tbody>${USERS.map(u=>{ const pwset=u.must_change_password===false, canImp=mgr&&u.id!==USER.id&&u.is_active!==false;
+      return `<tr><td>${esc(u.full_name)}</td><td><span class="pill">${esc(roleLabel(u.role))}</span></td>
+      <td style="color:${u.email?'var(--muted)':'var(--amber)'};font-size:12px">${esc(u.email||'no email')}</td>
+      <td style="font-size:12px;color:${pwset?'var(--green)':'var(--amber)'}">${pwset?'✓ personal':'— default (must set)'}</td>
+      <td>${u.is_active===false?'no':'yes'}</td>
+      ${mgr?`<td style="white-space:nowrap">${canImp?`<button class="btn sm" onclick="impersonate('${esc(u.id)}')" title="Log in as this person">Log in as →</button> <button class="btn sm" onclick="resetUserPw('${esc(u.id)}','${esc(u.full_name).replace(/'/g,'')}')" title="Reset to the default password">Reset pw</button>`:'<span class="sub" style="color:var(--muted);font-size:11px">you</span>'}</td>`:''}
+    </tr>`; }).join('')||`<tr><td colspan="${mgr?6:5}" class="empty">No people yet.</td></tr>`}</tbody></table></div>`;
+  if($('pwAdmin')) $('pwAdmin').style.display=mgr?'':'none'; // default + master password setters are admin-only
   // refresh owner filters/selects with new users
   $('fOwner').innerHTML='<option value="">any</option>'+USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
   $('fCohort').innerHTML='<option value="">any</option>'+COHORTS.map(c=>`<option>${esc(c)}</option>`).join('');
@@ -1475,9 +1554,20 @@ $('addPerson').onclick=async()=>{
 };
 $('setPass').onclick=async()=>{
   const p=$('newPass').value; if(!p){toast('Enter a password');return;}
-  try{ const h=await sha256(p); await api('app_config',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:[{key:'shared_password_sha256',value:h}]}); $('newPass').value=''; toast('Password updated'); }
+  try{ const h=await sha256(p); await api('app_config',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:[{key:'shared_password_sha256',value:h}]}); $('newPass').value=''; toast('Default password updated'); }
   catch(e){ toast('Failed: '+e.message); }
 };
+$('setMaster').onclick=async()=>{
+  const p=$('newMaster').value; if(!p){toast('Enter a master password');return;}
+  try{ const h=await sha256(p); await api('app_config',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:[{key:'master_password_sha256',value:h}]}); $('newMaster').value=''; await audit('app_config','master','SET_MASTER',null,{by:USER.full_name}); toast('Master password updated'); }
+  catch(e){ toast('Failed: '+e.message); }
+};
+async function resetUserPw(id,name){ if(!isMgr())return;
+  if(!confirm('Reset '+name+'’s password? They’ll sign in with the default password and set a new one.'))return;
+  try{ await api('app_users?id=eq.'+id,{method:'PATCH',body:{password_sha256:null,must_change_password:true}}); await audit('app_users',id,'RESET_PASSWORD',null,{by:USER.full_name}); toast(name+' will set a new password on next login'); renderPeople(); }
+  catch(e){ toast('Failed: '+e.message); }
+}
+window.resetUserPw=resetUserPw;
 
 // =====================================================================
 // BOOT
@@ -1905,7 +1995,7 @@ function showMigrationBanner(){
 async function boot(){
   if(!configured()){ showScreen('setup'); if(URLB)$('cfgUrl').value=URLB; return; }
   await loadRefs();
-  try{ await api('mouse_v?select=batch_id,dob_estimated,facility,cage&limit=0'); await api('requests?select=assignee_ids,request_type,mice_info&limit=0'); await api('guardian_angels?select=id&limit=0'); }catch(_){ showMigrationBanner(); } // a migration hasn't been run yet → warn instead of cryptic save errors
+  try{ await api('mouse_v?select=batch_id,dob_estimated,facility,cage&limit=0'); await api('requests?select=assignee_ids,request_type,mice_info&limit=0'); await api('guardian_angels?select=id&limit=0'); await api('app_users?select=must_change_password&limit=0'); }catch(_){ showMigrationBanner(); } // a migration hasn't been run yet → warn instead of cryptic save errors
   // populate selects that persist across screens
   $('fOwner').innerHTML='<option value="">any</option>'+USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
   $('fCohort').innerHTML='<option value="">any</option>'+COHORTS.map(c=>`<option>${esc(c)}</option>`).join('');
