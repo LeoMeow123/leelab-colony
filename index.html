@@ -661,17 +661,18 @@ $('batchField').onchange=fillBatchValue;
 $('batchClear').onclick=()=>{ SEL.clear(); syncChecks(); };
 $('batchAll').onclick=async()=>{ try{ const r=await api(buildQuery(true).replace(/select=[^&]*/,'select=id')); (r.data||[]).forEach(x=>SEL.add(x.id)); }catch(e){ toast('Failed: '+e.message); return; } syncChecks(); };
 // chunk ids so id=in.(...) never overruns the URL length limit; sum the ROWS ACTUALLY affected (return=representation) rather than the intended count
-async function inChunks(ids,method,headers,body){ let rows=[]; for(let i=0;i<ids.length;i+=100){ const c=ids.slice(i,i+100);
-  const r=await api(`mice?id=in.(${c.join(',')})`,{method,headers,body}); rows=rows.concat(r.data||[]); } return rows; }
+async function inChunks(ids,method,headers,body,filter){ let rows=[]; for(let i=0;i<ids.length;i+=100){ const c=ids.slice(i,i+100);
+  const r=await api(`mice?id=in.(${c.join(',')})${filter||''}`,{method,headers,body}); rows=rows.concat(r.data||[]); } return rows; }
+const ownFilter=()=>isMgr()?'':`&or=(responsible_person.eq.${USER.id},created_by.eq.${USER.id})`; // non-managers only touch their own mice
 async function batchPatch(patch,verb){ const ids=[...SEL]; if(!ids.length)return;
-  try{ const rows=await inChunks(ids,'PATCH',{Prefer:'return=representation'},Object.assign({updated_by:USER.id,updated_at:new Date().toISOString()},patch));
-    const n=rows.length; await audit('mice',null,verb,null,Object.assign({count:n,requested:ids.length},patch));
-    toast(`${verb==='BATCH_VERIFY'?'Verified':'Updated'} ${n}${n!==ids.length?' of '+ids.length:''} mice`); SEL.clear(); loadColony();
+  try{ const rows=await inChunks(ids,'PATCH',{Prefer:'return=representation'},Object.assign({updated_by:USER.id,updated_at:new Date().toISOString()},patch),ownFilter());
+    const n=rows.length, skipped=ids.length-n; await audit('mice',null,verb,null,Object.assign({count:n,requested:ids.length},patch));
+    toast(`${verb==='BATCH_VERIFY'?'Verified':'Updated'} ${n} mice${skipped>0?` · ${skipped} skipped${isMgr()?'':' (not yours)'}`:''}`); SEL.clear(); loadColony();
   }catch(e){ toast('Update failed: '+e.message); } }
 $('batchApply').onclick=()=>{ const n=SEL.size; if(!n)return; const f=$('batchField').value, el=$('batchValue'), v=el.value.trim();
   if(f==='genotype_label'&&!v){ toast('Enter a genotype'); return; }
   const fl=$('batchField').selectedOptions[0].text, vl=el.tagName==='SELECT'?el.selectedOptions[0].text:v;
-  if(!confirm(`Set ${fl} = “${vl}” for ${n} selected mice?`))return; batchPatch({[f]:v},'BATCH_UPDATE'); };
+  if(!confirm(`Set ${fl} = “${vl}” for ${n} selected mice?${isMgr()?'':'\n\nOnly mice you own or added will change.'}`))return; batchPatch({[f]:v},'BATCH_UPDATE'); };
 $('batchVerify').onclick=()=>{ const n=SEL.size; if(!n)return; if(!confirm(`Mark ${n} mice verified today?`))return; batchPatch({last_verified:todayStr()},'BATCH_VERIFY'); };
 $('batchDelete').onclick=async()=>{ const ids=[...SEL]; if(!ids.length)return;
   if(!isMgr()){ toast('Bulk delete lives in “My colony” — you can delete your own cohorts there.'); return; }
