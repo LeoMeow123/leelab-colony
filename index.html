@@ -218,8 +218,8 @@
   <!-- ADD -->
   <div class="wrap hidden" id="tab-add">
     <div class="card" style="max-width:760px">
-      <h1 style="font-size:17px;margin-bottom:2px">Add a cohort</h1>
-      <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:14px">Add a whole cage/cohort at once. Leave mouse numbers blank if they're pending — you can file an ear-tag request and fill them in later. (For a single mouse, just enter 1.)</div>
+      <h1 style="font-size:17px;margin-bottom:2px">Add mice</h1>
+      <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:14px">Add a whole cage/cohort at once, or switch to <b>Single mouse</b> for a one-off. Leave mouse numbers blank if they're pending — you can file an ear-tag request and fill them in later.</div>
       <div id="cohortForm"></div>
       <div class="modal-actions"><button class="btn p" id="addSave">Add cohort</button></div>
       <div class="err" id="addErr"></div>
@@ -683,7 +683,7 @@ $('exportCsv').onclick=async()=>{
   try{
     const r=await api(buildQuery(true)); // all matching rows, current filters
     const rows=r.data||[]; if(!rows.length){toast('Nothing to export');return;}
-    const cols=['tag_id','sex','cohort','genotype_label','age_months','age_weeks','age_days','current_location','owner_name','status','dob'];
+    const cols=['tag_id','sex','cohort','genotype_label','age_months','age_weeks','age_days','current_location','owner_name','status','experiments','dob'];
     let csv=cols.join(',')+'\n';
     rows.forEach(m=>{ csv+=cols.map(c=>{const v=m[c]==null?'':String(m[c]);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}).join(',')+'\n'; });
     const b=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='colony_export.csv';a.click();
@@ -844,9 +844,15 @@ function renderCages(){
   $('c_cages').querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{ CAGES.splice(+b.dataset.rm,1); if(!CAGES.length)CAGES.push(newCage()); renderCages(); });
   $('c_addcage').onclick=()=>{ CAGES.push(newCage()); renderCages(); };
 }
-function renderCohortForm(){
-  CAGES=[newCage()];
+let ADD_MODE='cohort';
+function renderCohortForm(mode){
+  ADD_MODE = (mode==='single')?'single':'cohort'; const single=ADD_MODE==='single';
+  CAGES = single ? [{cage:'1',sex:'M',nums:'',count:'1'}] : [newCage()];
   $('cohortForm').innerHTML=`
+    <div class="viewtoggle" style="margin-bottom:14px">
+      <button type="button" class="btn${single?'':' active'}" id="addModeCohort">Cohort / multiple cages</button>
+      <button type="button" class="btn${single?' active':''}" id="addModeSingle">Single mouse</button>
+    </div>
     <div class="grid3">
       <div class="field"><label>Genotype *</label>${cohortInput('c_cohort','')}</div>
       <div class="field"><label>Owner *</label><select class="in" id="c_owner">${ownerOptions('')}</select></div>
@@ -866,20 +872,38 @@ function renderCohortForm(){
       <div class="field"><label>Row</label><input class="in" id="c_row" placeholder="e.g. 5"></div>
       <div class="field"><label>Col</label><input class="in" id="c_col" placeholder="e.g. H-L"></div>
     </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:6px"><input type="checkbox" id="c_locundecided"> Row / Col not decided yet — leave blank, set later</label>
+    ${single?`
+    <div class="section-h">Mouse</div>
+    <div class="grid3">
+      <div class="field"><label>Mouse # <span style="color:var(--muted);font-weight:400;font-size:11px">(blank = pending)</span></label><input class="in" id="c_single_num" placeholder="e.g. 4471"></div>
+      <div class="field"><label>Sex</label><select class="in" id="c_single_sex"><option>M</option><option>F</option><option value="U">Unknown</option></select></div>
+      <div class="field"><label>Cage #</label><input class="in" id="c_single_cage" value="1"></div>
+    </div>`:`
     <div class="sub" style="color:var(--muted);font-size:12px">Facility → Room → Rack → Row/Col is the rack position (shared by the cohort). The <b>cage number</b> is set per-cage below.</div>
     <div class="section-h">Cages</div>
     <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:8px">One row per cage (usually single-sex). Enter the cage's mouse numbers (a list or a range like 4471-4478) and the count fills in — or leave numbers blank and just type how many mice are in the cage. Cage # defaults to 1, 2, 3… — change it if your cages are labeled otherwise. All of this is editable later.</div>
     <div class="field" style="max-width:170px"><label># of cages</label><input class="in" id="c_ncages" type="number" min="1" value="1"></div>
     <div id="c_cages" style="margin-top:8px"></div>
-    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:10px"><input type="checkbox" id="c_eartag" checked> If any numbers are pending, file an ear-tag request for this cohort</label>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:10px"><input type="checkbox" id="c_eartag" checked> If any numbers are pending, file an ear-tag request for this cohort</label>`}
     <div class="section-h">Experiments</div>
-    <div class="field"><label>Experiments this cohort has been through (comma-separated)</label><input class="in" id="c_exp" placeholder="e.g. T-maze, Social, HCM">${expChips('c_exp')}</div>
+    <div class="field"><label>Experiments ${single?'this mouse':'this cohort'} has been through (comma-separated)</label><input class="in" id="c_exp" placeholder="e.g. T-maze, Social, HCM">${expChips('c_exp')}</div>
     <div class="field" style="margin-top:8px"><label>Notes</label><input class="in" id="c_notes"></div>`;
-  renderCages();
-  $('c_ncages').onchange=()=>{ let n=parseInt($('c_ncages').value,10); if(!(n>=1))n=1; if(n>200)n=200;
-    while(CAGES.length<n)CAGES.push(newCage()); if(CAGES.length>n)CAGES.length=n; renderCages(); };
+  $('addModeCohort').onclick=()=>renderCohortForm('cohort');
+  $('addModeSingle').onclick=()=>renderCohortForm('single');
+  if(single){
+    const bind=()=>{ CAGES[0]={cage:($('c_single_cage').value.trim()||'1'), sex:$('c_single_sex').value, nums:$('c_single_num').value.trim(), count:'1'}; };
+    ['c_single_num','c_single_cage'].forEach(id=>{ $(id).oninput=bind; }); $('c_single_sex').onchange=bind; bind();
+  } else {
+    renderCages();
+    $('c_ncages').onchange=()=>{ let n=parseInt($('c_ncages').value,10); if(!(n>=1))n=1; if(n>200)n=200;
+      while(CAGES.length<n)CAGES.push(newCage()); if(CAGES.length>n)CAGES.length=n; renderCages(); };
+  }
   $('c_agebasis').onchange=()=>{ const v=$('c_agebasis').value;
     $('c_dobwrap').classList.toggle('hidden',v!=='dob'); $('c_agewrap').classList.toggle('hidden',v!=='age'); };
+  $('c_locundecided').onchange=()=>{ const on=$('c_locundecided').checked; // "undecided" = clear + lock Row/Col; location just omits them
+    ['c_row','c_col'].forEach(id=>{ const el=$(id); if(on)el.value=''; el.disabled=on; el.placeholder=on?'undecided':(id==='c_row'?'e.g. 5':'e.g. H-L'); }); };
+  const sb=$('addSave'); if(sb) sb.textContent = single?'Add mouse':'Add cohort';
 }
 $('addSave').onclick=async()=>{
   $('addErr').textContent='';
@@ -891,6 +915,7 @@ $('addSave').onclick=async()=>{
   if(basis==='dob'){ dob=g('c_dob'); if(!dob){ $('addErr').textContent='Enter a DOB, or switch to “Estimate from age” / “Unknown (add later)”.'; return; } }
   else if(basis==='age'){ const a=parseFloat($('c_age').value); if(!(a>0)){ $('addErr').textContent='Enter a rough age, or choose “Unknown (add later)”.'; return; } dob=ageToDob(a,$('c_ageunit').value); dobEst=true; }
   const baseLoc={facility:g('c_fac'),room:g('c_room'),rack:g('c_rack'),rack_row:g('c_row'),rack_col:g('c_col')};
+  const baseLocStr=buildLoc(baseLoc)||''; // cohort-level location string (was referenced as an undefined `current_location`)
   const batch_id=crypto.randomUUID(), today=todayStr();
   const geno=g('c_geno'), notes=g('c_notes'), exp=g('c_exp');
   const common={cohort, genotype_label:geno, dob, dob_estimated:dobEst, responsible_person:owner, status:'healthy',
@@ -917,14 +942,14 @@ $('addSave').onclick=async()=>{
     await audit('mice',null,'INSERT_COHORT',null,{cohort,owner:userName(owner),count:total,cages:CAGES.length,batch_id,dob_estimated:dobEst});
     ensureCohort(cohort); // a typed-in genotype becomes a reusable option everywhere
     let extra='';
-    if(pending>0 && $('c_eartag').checked){
+    if(pending>0 && $('c_eartag') && $('c_eartag').checked){
       await api('requests',{method:'POST',body:[{requester_id:USER.id, subject:`Ear-tag ${pending} ${cohort} mice`, request_type:'Ear-tag',
-        mice_info:`${cohort} cohort${current_location?' at '+current_location:''}`,
+        mice_info:`${cohort} cohort${baseLocStr?' at '+baseLocStr:''}`,
         body:`Pending ear tags — new ${cohort} cohort, ${total} mice in ${CAGES.length} cage(s); ${pending} still need a number.`,
         needed_cohort:cohort, quantity:pending, assignee_id:owner, assignee_ids:[owner], status:'open', priority:0}]});
       extra=` + ear-tag request (${pending})`;
     }
-    toast(`Added ${total} mice in ${CAGES.length} cage(s)`+extra); renderCohortForm(); switchTab('colony'); page=0; loadColony();
+    toast(`Added ${total} ${total===1?'mouse':'mice'}`+(ADD_MODE==='single'?'':` in ${CAGES.length} cage(s)`)+extra); renderCohortForm(); switchTab('colony'); page=0; loadColony();
   }catch(e){ $('addErr').textContent=e.message; }
 };
 
