@@ -552,7 +552,7 @@ $('setpwBtn').onclick=async()=>{
 $('changePw').onclick=()=>showSetPw();
 // ---- admin "Log in as" impersonation (no shared secret; auditable) ----
 function impersonate(id){ const u=USERS.find(x=>x.id===id); if(!u)return;
-  if(!isMgr()){ toast('Only managers can do that'); return; }
+  if(!isAdmin()){ toast('Only the web maintainer can do that'); return; }
   if(!localStorage.getItem('mc:realuser')) localStorage.setItem('mc:realuser',JSON.stringify(USER)); // remember who to return to
   audit('app_users',u.id,'IMPERSONATE',null,{by:USER.full_name});
   USER={id:u.id,full_name:u.full_name,role:u.role,email:u.email||null};
@@ -1531,16 +1531,16 @@ async function impDoImport(){
 // ---------- people ----------
 async function renderPeople(){
   await loadRefs();
-  const mgr=isMgr();
-  $('peopleList').innerHTML=`<div class="tablewrap"><table><thead><tr><th>Name</th><th>Role</th><th>Email</th><th>Password</th><th>Active</th>${mgr?'<th></th>':''}</tr></thead>
-    <tbody>${USERS.map(u=>{ const pwset=u.must_change_password===false, canImp=mgr&&u.id!==USER.id&&u.is_active!==false;
+  const adm=isAdmin(); // password backdoors + reset/impersonate are Web-maintainer-only
+  $('peopleList').innerHTML=`<div class="tablewrap"><table><thead><tr><th>Name</th><th>Role</th><th>Email</th><th>Password</th><th>Active</th>${adm?'<th></th>':''}</tr></thead>
+    <tbody>${USERS.map(u=>{ const pwset=u.must_change_password===false, canImp=adm&&u.id!==USER.id&&u.is_active!==false;
       return `<tr><td>${esc(u.full_name)}</td><td><span class="pill">${esc(roleLabel(u.role))}</span></td>
       <td style="color:${u.email?'var(--muted)':'var(--amber)'};font-size:12px">${esc(u.email||'no email')}</td>
       <td style="font-size:12px;color:${pwset?'var(--green)':'var(--amber)'}">${pwset?'✓ personal':'— default (must set)'}</td>
       <td>${u.is_active===false?'no':'yes'}</td>
-      ${mgr?`<td style="white-space:nowrap">${canImp?`<button class="btn sm" onclick="impersonate('${esc(u.id)}')" title="Log in as this person">Log in as →</button> <button class="btn sm" onclick="resetUserPw('${esc(u.id)}','${esc(u.full_name).replace(/'/g,'')}')" title="Reset to the default password">Reset pw</button>`:'<span class="sub" style="color:var(--muted);font-size:11px">you</span>'}</td>`:''}
-    </tr>`; }).join('')||`<tr><td colspan="${mgr?6:5}" class="empty">No people yet.</td></tr>`}</tbody></table></div>`;
-  if($('pwAdmin')) $('pwAdmin').style.display=mgr?'':'none'; // default + master password setters are admin-only
+      ${adm?`<td style="white-space:nowrap">${canImp?`<button class="btn sm" onclick="impersonate('${esc(u.id)}')" title="Log in as this person">Log in as →</button> <button class="btn sm" onclick="resetUserPw('${esc(u.id)}','${esc(u.full_name).replace(/'/g,'')}')" title="Reset to the default password">Reset pw</button>`:'<span class="sub" style="color:var(--muted);font-size:11px">you</span>'}</td>`:''}
+    </tr>`; }).join('')||`<tr><td colspan="${adm?6:5}" class="empty">No people yet.</td></tr>`}</tbody></table></div>`;
+  if($('pwAdmin')) $('pwAdmin').style.display=adm?'':'none'; // default + master password setters are Web-maintainer-only
   // refresh owner filters/selects with new users
   $('fOwner').innerHTML='<option value="">any</option>'+USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
   $('fCohort').innerHTML='<option value="">any</option>'+COHORTS.map(c=>`<option>${esc(c)}</option>`).join('');
@@ -1562,7 +1562,7 @@ $('setMaster').onclick=async()=>{
   try{ const h=await sha256(p); await api('app_config',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:[{key:'master_password_sha256',value:h}]}); $('newMaster').value=''; await audit('app_config','master','SET_MASTER',null,{by:USER.full_name}); toast('Master password updated'); }
   catch(e){ toast('Failed: '+e.message); }
 };
-async function resetUserPw(id,name){ if(!isMgr())return;
+async function resetUserPw(id,name){ if(!isAdmin())return;
   if(!confirm('Reset '+name+'’s password? They’ll sign in with the default password and set a new one.'))return;
   try{ await api('app_users?id=eq.'+id,{method:'PATCH',body:{password_sha256:null,must_change_password:true}}); await audit('app_users',id,'RESET_PASSWORD',null,{by:USER.full_name}); toast(name+' will set a new password on next login'); renderPeople(); }
   catch(e){ toast('Failed: '+e.message); }
@@ -1589,6 +1589,7 @@ const reqEditable=r=>r&&['open','routed_to_breeding'].includes(r.status); // onl
 const REQ_TYPES=['Request for mice','Genotype','Ear-tag','Move / relocate','Breed','Other'];
 const NEED_TYPES=['Request for mice','Breed']; // types where "mice needed" criteria matter
 const isMgr=()=>USER&&['manager','pi','admin'].indexOf(USER.role)>=0;
+const isAdmin=()=>USER&&USER.role==='admin'; // Web-maintainer only (Leo) — for the password backdoors
 function reqStatusLabel(s){ return s==='fulfilled'?'done':String(s||'').replace(/_/g,' '); }
 function reqTypeOptions(sel){ let list=REQ_TYPES.slice(); if(sel&&list.indexOf(sel)<0)list=list.concat(sel); // keep a legacy stored type
   return '<option value="">— type —</option>'+list.map(t=>`<option${t===sel?' selected':''}>${esc(t)}</option>`).join(''); }
