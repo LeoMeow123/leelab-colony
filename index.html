@@ -1523,7 +1523,8 @@ async function sendRequestEmail(requestId){ // Edge Function emails the request'
   if(!res.ok) throw new Error('notify-request '+res.status);
   return res.json(); }
 function openReqMail(emails, rec){
-  const body=(`Hi,\n\nA mouse request was filed in the Lee Lab colony DB:\n\n  ${rec.subject}\n  ${rec.body||''}\n  Cohort: ${rec.needed_cohort||'any'} · Sex: ${rec.needed_sex||'any'} · Qty: ${rec.quantity||'—'}\n  Status: ${rec.status}\n\nFiled by ${USER.full_name}. Please review it in the colony app.\n`).slice(0,1200);
+  const appUrl=location.origin+location.pathname;
+  const body=(`Hi,\n\nA mouse request was filed in the Lee Lab colony DB:\n\n  ${rec.subject}\n  ${rec.body||''}\n  Cohort: ${rec.needed_cohort||'any'} · Sex: ${rec.needed_sex||'any'} · Qty: ${rec.quantity||'—'}\n  Status: ${rec.status}\n\nFiled by ${USER.full_name}.\n\nOpen the colony app: ${appUrl}\n`).slice(0,1200);
   window.location.href='mailto:'+emails.map(encodeURIComponent).join(',')+'?subject='+encodeURIComponent('Mouse request: '+rec.subject)+'&body='+encodeURIComponent(body); }
 
 let curReq=null;

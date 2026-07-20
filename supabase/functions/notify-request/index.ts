@@ -37,7 +37,7 @@ Deno.serve(async (req) => {
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
     const EMAIL_FROM = Deno.env.get("EMAIL_FROM") || "Lee Lab Colony <onboarding@resend.dev>";
-    const APP_URL = Deno.env.get("APP_URL") || "";
+    const APP_URL = Deno.env.get("APP_URL") || "https://leomeow123.github.io/leelab-colony/"; // link always appears even if the secret isn't set
     if (!RESEND_API_KEY) return json({ error: "RESEND_API_KEY not set" }, 500);
     if (!SUPABASE_URL || !SERVICE_KEY) return json({ error: "Supabase env missing" }, 500);
 
@@ -86,10 +86,29 @@ Deno.serve(async (req) => {
 
 Filed by ${by}.${APP_URL ? "\n\nOpen the colony app: " + APP_URL : ""}`;
 
+    // HTML version so the colony app is a real clickable link/button (not just text).
+    const esc = (s: unknown) => String(s ?? "").replace(/[&<>"]/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+    const html =
+`<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px;color:#1a1d26;line-height:1.5">
+  <p>A mouse request was filed in the Lee Lab colony DB:</p>
+  <table style="margin:8px 0;border-collapse:collapse">
+    <tr><td style="padding:2px 8px 2px 0;color:#667085">Request</td><td><b>${esc(r.subject)}</b></td></tr>
+    ${r.body ? `<tr><td style="padding:2px 8px 2px 0;color:#667085">Details</td><td>${esc(r.body)}</td></tr>` : ""}
+    <tr><td style="padding:2px 8px 2px 0;color:#667085">Criteria</td><td>Genotype: ${esc(r.needed_cohort || "any")} · Sex: ${esc(r.needed_sex || "any")} · Qty: ${esc(r.quantity || "—")}</td></tr>
+    <tr><td style="padding:2px 8px 2px 0;color:#667085">Status</td><td>${esc(r.status)}</td></tr>
+    <tr><td style="padding:2px 8px 2px 0;color:#667085">Filed by</td><td>${esc(by)}</td></tr>
+  </table>
+  ${APP_URL ? `<p style="margin-top:16px">
+    <a href="${esc(APP_URL)}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:9px 16px;border-radius:8px;font-weight:600">Open the colony app →</a>
+  </p>
+  <p style="color:#667085;font-size:12px">Or paste this link: <a href="${esc(APP_URL)}">${esc(APP_URL)}</a></p>` : ""}
+</div>`;
+
     const send = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: "Bearer " + RESEND_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: EMAIL_FROM, to, subject, text }),
+      body: JSON.stringify({ from: EMAIL_FROM, to, subject, text, html }),
     });
     if (!send.ok) return json({ error: "resend: " + (await send.text()) }, 502);
     return json({ sent: to.length, missing: [...missing] }); // counts/names only — don't echo addresses
