@@ -633,7 +633,8 @@ function syncChecks(){
 function toggleAllOnPage(on){ $('tbody').querySelectorAll('.rowsel').forEach(cb=>{ if(on)SEL.add(cb.dataset.id); else SEL.delete(cb.dataset.id); }); syncChecks(); }
 function syncMine(){ $('fMine').classList.toggle('active', !!(USER&&USER.id&&$('fOwner').value===USER.id)); }
 function syncBatchBar(){ const n=SEL.size; $('batchBar').classList.toggle('hidden',n===0); $('batchCount').textContent=n+' selected';
-  const more=total>n; $('batchAll').classList.toggle('hidden',!more); $('batchAll').textContent=`Select all ${total}`; }
+  const more=total>n; $('batchAll').classList.toggle('hidden',!more); $('batchAll').textContent=`Select all ${total}`;
+  const db=$('batchDelete'); if(db) db.style.display=isMgr()?'':'none'; } // delete on the shared page is managers-only; members delete their own in "My colony"
 function fillBatchValue(){ const f=$('batchField').value;
   if(f==='genotype_label'){ $('batchValWrap').innerHTML='<input class="in" id="batchValue" placeholder="genotype text" style="min-width:150px">'; return; }
   let o='';
@@ -673,6 +674,7 @@ $('batchApply').onclick=()=>{ const n=SEL.size; if(!n)return; const f=$('batchFi
   if(!confirm(`Set ${fl} = “${vl}” for ${n} selected mice?`))return; batchPatch({[f]:v},'BATCH_UPDATE'); };
 $('batchVerify').onclick=()=>{ const n=SEL.size; if(!n)return; if(!confirm(`Mark ${n} mice verified today?`))return; batchPatch({last_verified:todayStr()},'BATCH_VERIFY'); };
 $('batchDelete').onclick=async()=>{ const ids=[...SEL]; if(!ids.length)return;
+  if(!isMgr()){ toast('Bulk delete lives in “My colony” — you can delete your own cohorts there.'); return; }
   if(!confirm(`Delete ${ids.length} mice permanently? This can't be undone.`))return;
   try{ const rows=await inChunks(ids,'DELETE',{Prefer:'return=representation'});
     if(!rows.length){ toast('Delete blocked by DB — run migration_002.sql'); return; }
@@ -692,6 +694,10 @@ $('exportCsv').onclick=async()=>{
 
 // ---------- mouse detail / edit ----------
 let curMouse=null, editing=false;
+// Deletion is owner-scoped: you can delete only mice you own or created. Managers/PI/Web-maintainer can delete any (oversight).
+// (UI-level gate, consistent with the app's soft-security model; true per-user enforcement would be Supabase Auth + RLS.)
+const mineMouse=m=>!!(USER&&m&&(m.responsible_person===USER.id||m.created_by===USER.id));
+const canDelMouse=m=>isMgr()||mineMouse(m);
 async function openDetail(id){
   editing=false;
   try{
@@ -729,7 +735,7 @@ function renderDetail(m,em,pr){
       <div class="kv"><span class="k">DOB</span><span>${esc(m.dob||'—')}</span></div>
       <div class="kv"><span class="k">Owner</span><span>${esc(m.owner_name||'—')}</span></div>
       <div class="kv"><span class="k">Location</span><span>${esc(m.current_location||'—')}</span></div>
-      <div class="kv"><span class="k">Verified</span><span>${esc(m.last_verified||'never')}</span></div>
+      <div class="kv"><span class="k" title="The last day someone physically checked this mouse. Older than 30 days → “stale” badge.">Verified</span><span>${esc(m.last_verified||'never')}${m.is_stale?' <span style="color:var(--amber);font-size:11px">(stale &gt;30d)</span>':''}</span></div>
       <div class="kv"><span class="k">Facility</span><span>${esc(m.facility||'—')}</span></div>
       <div class="kv"><span class="k">Cage</span><span>${esc(m.cage||'—')}</span></div>
       <div class="kv"><span class="k">Strain</span><span>${esc(m.genotype_label||'—')}</span></div>
@@ -739,9 +745,8 @@ function renderDetail(m,em,pr){
     <div class="section-h">Timeline</div>
     <div class="timeline">${tl.length?tl.map(i=>`<div class="tl-item"><span class="dt">${esc(i.date||'—')}</span><span class="tag">${esc(i.tag)}</span><span>${esc(i.txt)}</span></div>`).join(''):'<div style="color:var(--muted);font-size:12px">No experiments or procedures logged.</div>'}</div>
     <div class="modal-actions">
-      <button class="btn r sm" onclick="__mc.del()">Delete mouse</button>
-      ${m.batch_id?`<button class="btn r sm" onclick="__mc.delCohort()">Delete cohort…</button>`:''}
-      <button class="btn g sm" onclick="__mc.verify()">✓ Mark verified today</button>
+      ${canDelMouse(m)?`<button class="btn r sm" onclick="__mc.del()">Delete mouse</button>${m.batch_id?`<button class="btn r sm" onclick="__mc.delCohort()">Delete cohort…</button>`:''}`:''}
+      <button class="btn g sm" onclick="__mc.verify()" title="Records that you physically checked this mouse today. If a mouse isn't verified for 30+ days it gets a “stale” badge — a reminder to re-check it.">✓ Mark verified today</button>
       <button class="btn p" onclick="__mc.edit()">Edit</button>
     </div>`;
 }
@@ -806,6 +811,7 @@ window.__mc={
     catch(e){ toast('Failed: '+e.message); }
   },
   del:async()=>{
+    if(!canDelMouse(curMouse)){ toast('You can only delete your own mice — ask the owner or a manager.'); return; }
     if(!confirm(`Delete mouse ${curMouse.tag_id||'(no tag)'}? This permanently removes the record and can't be undone.`)) return;
     try{
       const r=await api(`mice?id=eq.${curMouse.id}`,{method:'DELETE',headers:{Prefer:'return=representation'}});
@@ -814,6 +820,7 @@ window.__mc={
     }catch(e){ toast('Delete failed: '+e.message); }
   },
   delCohort:async()=>{
+    if(!canDelMouse(curMouse)){ toast('You can only delete your own cohorts — do it from “My colony”.'); return; }
     const bid=curMouse.batch_id; if(!bid) return;
     let sibs=[]; try{ sibs=(await api(`mice?batch_id=eq.${bid}&select=id`)).data||[]; }catch(_){}
     if(!confirm(`Delete the whole cohort added together with this mouse — ${sibs.length} mice? This permanently removes all of them and can't be undone.`)) return;
