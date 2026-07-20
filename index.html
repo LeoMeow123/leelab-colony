@@ -170,7 +170,7 @@
       <div class="f"><label>Sex</label><select class="in" id="fSex"><option value="">any</option><option>M</option><option>F</option><option>U</option></select></div>
       <div class="f"><label>Genotype</label><select class="in" id="fCohort"><option value="">any</option></select></div>
       <div class="f"><label>Facility</label><select class="in" id="fFac"><option value="">any</option></select></div>
-      <div class="f"><label>Status</label><select class="in" id="fStatus"><option value="healthy">healthy</option><option value="">any</option><option>diseased</option><option>sacrificed</option><option>dead</option><option>transferred</option><option>unknown</option></select></div>
+      <div class="f"><label>Status</label><select class="in" id="fStatus"><option value="" selected>any</option><option value="healthy">healthy</option><option>diseased</option><option>sacrificed</option><option>dead</option><option>transferred</option><option>unknown</option></select></div>
       <div class="f"><label>Age ≥ (mo)</label><input class="in" id="fAgeMin" type="number" step="0.1" placeholder="min"></div>
       <div class="f"><label>Age ≤ (mo)</label><input class="in" id="fAgeMax" type="number" step="0.1" placeholder="max"></div>
       <div class="f"><label>Owner</label><select class="in" id="fOwner"><option value="">any</option></select></div>
@@ -648,7 +648,7 @@ function fillBatchValue(){ const f=$('batchField').value;
   $('batchValWrap').innerHTML=`<select class="in" id="batchValue">${o}</select>`; }
 ['fSearch','fLoc'].forEach(id=>$(id).addEventListener('input',debounce(()=>{SEL.clear();page=0;loadColony();},300))); // changing the filtered set drops the selection so a batch op can't hit rows you can no longer see
 ['fSex','fCohort','fFac','fStatus','fAgeMin','fAgeMax','fOwner'].forEach(id=>$(id).addEventListener('change',()=>{SEL.clear();syncMine();page=0;loadColony();}));
-$('fClear').onclick=()=>{['fSearch','fLoc','fAgeMin','fAgeMax'].forEach(i=>$(i).value='');['fSex','fCohort','fFac','fOwner'].forEach(i=>$(i).value='');$('fStatus').value='healthy';SEL.clear();syncMine();page=0;loadColony();};
+$('fClear').onclick=()=>{['fSearch','fLoc','fAgeMin','fAgeMax'].forEach(i=>$(i).value='');['fSex','fCohort','fFac','fOwner'].forEach(i=>$(i).value='');$('fStatus').value='';SEL.clear();syncMine();page=0;loadColony();};
 $('prev').onclick=()=>{if(page>0){page--;loadColony();}};
 $('next').onclick=()=>{if((page+1)*pageSize<total){page++;loadColony();}};
 function debounce(fn,ms){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);};}
@@ -1394,6 +1394,7 @@ async function impDoImport(){
     $('impStep').innerHTML='<div class="sub" style="color:var(--green)">✓ Imported. Opening the colony…</div>';
     // show ALL statuses so imported mice that aren't "healthy" (e.g. inactive/dead) still appear — the default healthy filter was hiding them
     if($('fStatus')) $('fStatus').value=''; if($('fSearch')) $('fSearch').value=''; if($('fOwner')) $('fOwner').value=''; syncMine();
+    viewMode='ind'; if($('viewInd')){ $('viewInd').classList.add('active'); $('viewGrp').classList.remove('active'); } // land on individual mice, not grouped
     switchTab('colony'); page=0; loadColony();
   }catch(e){ $('impGo').disabled=false;
     try{ await audit('mice',null,'IMPORT_PARTIAL',null,{source:IMP.file,count:IMP._done,batch_id}); }catch(_){}
