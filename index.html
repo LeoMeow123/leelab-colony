@@ -230,8 +230,9 @@
   <div class="wrap hidden" id="tab-import">
     <div class="card" style="max-width:960px">
       <h1 style="font-size:17px;margin-bottom:2px">Import mice</h1>
-      <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:14px">Upload a <b>CSV</b> or <b>Excel (.xlsx)</b> export of your colony → map the columns → preview → bulk-import. Got a <b>PDF</b>? Send it to Leo to extract into a CSV first.</div>
+      <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:14px">Upload a <b>CSV</b> or <b>Excel (.xlsx)</b> export of your colony — we <b>auto-match your columns to the fields we need</b>; you just review and adjust, then preview and import. Any extra columns in your file are ignored. Got a <b>PDF</b> or an unusual layout? Email it to Leo to reshape first.</div>
       <input type="file" id="impFile" accept=".csv,.xlsx,.xls" class="in" style="max-width:360px">
+      <div class="sub" style="color:var(--muted);font-size:12px;margin-top:8px">Different or messy format that won't map? <a href="#" onclick="__impMailLeo();return false">✉ Email the file to Leo</a> and he'll turn it into an importable sheet.</div>
       <div id="impStep" style="margin-top:14px"></div>
     </div>
   </div>
@@ -1086,7 +1087,9 @@ $('cohortOverlay').addEventListener('mousedown',e=>{ if(e.target===$('cohortOver
 
 // ---------- import (CSV / Excel) ----------
 const IMP_FIELDS=[['','— ignore —'],['tag_id','Mouse #'],['sex','Sex'],['cohort','Genotype'],['genotype_label','Strain'],['dob','DOB (date)'],['age','Age (number)'],['status','Status'],['owner','Owner (name)'],['facility','Facility'],['room','Room'],['rack','Rack'],['cage','Cage'],['rack_row','Row'],['rack_col','Col'],['experiments','Experiments'],['date_of_death','Date of death'],['notes','Notes']];
-let IMP={headers:[],data:[],map:[],file:''};
+const IMP_REQUIRED=['tag_id','sex','cohort','dob']; // the fields we ask for up front; soft — import still allowed if unmapped
+const IMP_HINTS={tag_id:'ear-tag / cage-card #',sex:'M / F / U',cohort:'WT / Tau / …',dob:'a real date — or map Age instead',age:'used only if DOB is blank',genotype_label:'strain, e.g. C57BL/6, hMAP',owner:'matched to a lab member by name',status:'healthy / diseased / sacrificed / …',cage:'cage number / label'};
+let IMP={headers:[],data:[],fieldMap:{},file:''}; // fieldMap: our field key -> their column index (or -1 = none). Reversed from the old header->field map.
 function parseCSV(t){ const rows=[]; let row=[],cur='',q=false;
   for(let i=0;i<t.length;i++){ const c=t[i];
     if(q){ if(c==='"'){ if(t[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=c; }
@@ -1165,6 +1168,7 @@ function openImpMail(file,reason){
   const body=`Hi Leo,\n\nThe colony importer couldn't read this file:\n  File: ${file}\n  Issue: ${reason}\n\nPlease attach the file to this email before sending (the importer can't attach it for you).\n\nThanks`;
   window.location.href='mailto:'+ADMIN_EMAIL+'?subject='+encodeURIComponent('Colony import help: '+file)+'&body='+encodeURIComponent(body); }
 window.__impHelp=()=>impSendHelp('File parsed but no columns mapped to real fields.');
+window.__impMailLeo=()=>impSendHelp(IMP.headers&&IMP.headers.length?'Different/messy format — need help matching columns to the colony fields.':'Need help importing a colony file (format/columns).');
 $('impFile').onchange=async(e)=>{ const f=e.target.files[0]; if(!f)return; IMP.file=f.name; $('impStep').innerHTML='<div class="sub" style="color:var(--muted)">Reading…</div>';
   try{
     let arr;
@@ -1175,28 +1179,55 @@ $('impFile').onchange=async(e)=>{ const f=e.target.files[0]; if(!f)return; IMP.f
     IMP.headers=arr[0].map(x=>String(x==null?'':x).trim());
     IMP.data=arr.slice(1).map(r=>IMP.headers.map((_,i)=>String(r[i]==null?'':r[i])));
     if(IMP.headers.length<=1){ impHelp('The columns didn’t split — the file may use “;” or a tab instead of commas, or isn’t a table.'); return; }
-    IMP.map=IMP.headers.map(impGuess);
+    IMP.fieldMap=impAutoMap();
     impRenderMap();
   }catch(err){ impHelp(err.message||'Unreadable file.'); }
 };
+function impAutoMap(){ // reversed: for each field WE need, pick the first column in their file that matches
+  const fm={}; IMP_FIELDS.forEach(f=>{ if(f[0])fm[f[0]]=-1; });
+  IMP.headers.forEach((h,i)=>{ const g=impGuess(h); if(g && fm[g]===-1) fm[g]=i; });
+  return fm; }
+function impColOpts(seli){ return '<option value="-1">— not in my file —</option>'+
+  IMP.headers.map((h,i)=>`<option value="${i}"${i===seli?' selected':''}>${esc(h||('column '+(i+1)))}</option>`).join(''); }
+function impFieldRow(key,label){ const req=IMP_REQUIRED.indexOf(key)>=0, seli=(IMP.fieldMap[key]==null?-1:IMP.fieldMap[key]);
+  const hint=IMP_HINTS[key]?` <span style="color:var(--muted);font-weight:400;font-size:11px">— ${esc(IMP_HINTS[key])}</span>`:'';
+  return `<div class="field"><label>${esc(label)}${req?' <span style="color:var(--red)" title="recommended">*</span>':''}${hint}</label>
+    <select class="in imp-fmap" data-k="${esc(key)}">${impColOpts(seli)}</select></div>`; }
+function impMissingReq(){ return IMP_REQUIRED.filter(k=>!(IMP.fieldMap[k]>=0)); }
+function impExtras(){ const used=new Set(Object.keys(IMP.fieldMap).map(k=>IMP.fieldMap[k]).filter(i=>i>=0));
+  return IMP.headers.map((h,i)=>used.has(i)?null:(h||('column '+(i+1)))).filter(x=>x!=null); }
+function impUpdateHints(){ // live-update the "still needed" + "ignored columns" lines as the user remaps
+  const miss=impMissingReq().map(k=>(IMP_FIELDS.find(x=>x[0]===k)||[])[1]);
+  const m=$('imp_missing'); if(m){ m.innerHTML = miss.length?`⚠ Still unmapped (recommended): <b>${esc(miss.join(', '))}</b> — you can still import, or leave them if your file lacks these.`:'✓ All recommended fields are matched.'; m.style.color=miss.length?'var(--amber)':'var(--green)'; }
+  const ex=impExtras(), e=$('imp_extras'); if(e) e.innerHTML = ex.length?`${ex.length} column${ex.length>1?'s':''} in your file ${ex.length>1?'are':'is'} not used and will be ignored: ${esc(ex.join(', '))}`:'Every column in your file is mapped to a field.'; }
 function impRenderMap(){
-  const opts=sel=>IMP_FIELDS.map(f=>`<option value="${f[0]}"${f[0]===sel?' selected':''}>${esc(f[1])}</option>`).join('');
+  const grp=keys=>keys.map(k=>impFieldRow(k,(IMP_FIELDS.find(x=>x[0]===k)||[])[1])).join('');
+  const reqKeys=IMP_FIELDS.filter(f=>f[0]&&IMP_REQUIRED.indexOf(f[0])>=0).map(f=>f[0]);
+  const optKeys=IMP_FIELDS.filter(f=>f[0]&&IMP_REQUIRED.indexOf(f[0])<0).map(f=>f[0]);
   $('impStep').innerHTML=`
-    <div class="section-h">Map columns · ${IMP.data.length} rows from ${esc(IMP.file)}</div>
-    <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:8px">Match each spreadsheet column to a field (auto-guessed). Anything left as “ignore” is skipped.</div>
-    <div class="grid2">${IMP.headers.map((h,i)=>`<div class="field"><label>${esc(h||'(column '+(i+1)+')')}</label><select class="in imp-map" data-i="${i}">${opts(IMP.map[i])}</select></div>`).join('')}</div>
+    <div class="section-h">Match your columns · ${IMP.data.length} rows from ${esc(IMP.file)}</div>
+    <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:10px">These are the fields the colony uses. We auto-picked the matching column from your file — <b>check each one</b> and change it if it's wrong. Fields your file doesn't have: leave as “not in my file”. Your own extra columns are ignored.</div>
+    <div class="sub" id="imp_missing" style="font-size:12px;margin-bottom:8px"></div>
+    <div class="section-h" style="color:var(--red)">Required <span style="color:var(--muted);font-weight:400;font-size:11px">(what we ask for)</span></div>
+    <div class="grid2">${grp(reqKeys)}</div>
+    <div class="section-h">Optional <span style="color:var(--muted);font-weight:400;font-size:11px">(include if your file has them)</span></div>
+    <div class="grid2">${grp(optKeys)}</div>
+    <div class="sub" id="imp_extras" style="color:var(--muted);font-size:12px;margin-top:8px"></div>
     <div class="section-h">Defaults</div>
     <div class="grid3">
       <div class="field"><label>Default cohort (if blank)</label><select class="in" id="imp_cohort"><option value="">—</option>${COHORTS.map(c=>`<option>${esc(c)}</option>`).join('')}</select></div>
       <div class="field"><label>Default owner (if unmatched)</label><select class="in" id="imp_owner"><option value="">—</option>${USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('')}</select></div>
       <div class="field"><label>Age unit (if using Age)</label><select class="in" id="imp_ageunit"><option value="weeks">weeks</option><option value="months">months</option></select></div>
     </div>
-    <div class="modal-actions"><button class="btn p" id="impPreview">Preview →</button></div>`;
-  $('impStep').querySelectorAll('.imp-map').forEach(s=>s.onchange=()=>{ IMP.map[+s.dataset.i]=s.value; });
+    <div class="modal-actions" style="justify-content:space-between">
+      <button class="btn sm" onclick="__impMailLeo()" title="Send the file to Leo to reshape">✉ Can't map it? Email Leo</button>
+      <button class="btn p" id="impPreview">Preview →</button></div>`;
+  $('impStep').querySelectorAll('.imp-fmap').forEach(s=>s.onchange=()=>{ IMP.fieldMap[s.dataset.k]=+s.value; impUpdateHints(); });
+  impUpdateHints();
   $('impPreview').onclick=impDoPreview;
 }
 function impBuild(){
-  const idx={}; IMP_FIELDS.forEach(f=>{ if(f[0])idx[f[0]]=IMP.map.indexOf(f[0]); });
+  const idx={}; IMP_FIELDS.forEach(f=>{ if(f[0])idx[f[0]]=(IMP.fieldMap[f[0]]==null?-1:IMP.fieldMap[f[0]]); });
   const get=(r,f)=>idx[f]>=0?(r[idx[f]]||'').trim():'';
   const dcohort=$('imp_cohort').value, downer=$('imp_owner').value, aunit=$('imp_ageunit').value;
   const today=todayStr(), existing=IMP._existingTags||new Set(), seen=new Set();
@@ -1231,12 +1262,15 @@ async function impDoPreview(){
   try{ IMP._existingTags=await impFetchTags(); }catch(_){ IMP._existingTags=new Set(); }
   const built=impBuild(); IMP._built=built;
   const warnN=built.filter(b=>b.warn.length).length, emptyN=built.filter(b=>b.empty).length, show=built.slice(0,50);
-  const dupMap=[...new Set(IMP.map.filter((f,i)=>f&&IMP.map.indexOf(f)!==i))].map(f=>(IMP_FIELDS.find(x=>x[0]===f)||[])[1]).filter(Boolean);
+  const colUse={}; Object.keys(IMP.fieldMap).forEach(k=>{ const i=IMP.fieldMap[k]; if(i>=0){ (colUse[i]=colUse[i]||[]).push(k); } });
+  const multiCol=Object.keys(colUse).filter(i=>colUse[i].length>1).map(i=>`“${esc(IMP.headers[i]||('column '+(+i+1)))}” → ${colUse[i].map(k=>(IMP_FIELDS.find(x=>x[0]===k)||[])[1]).join(' + ')}`);
+  const missReq=impMissingReq().map(k=>(IMP_FIELDS.find(x=>x[0]===k)||[])[1]);
   const allEmpty=emptyN===built.length;
   $('impStep').innerHTML=`
     <div class="section-h">Preview · ${built.length} mice${warnN?` · <span style="color:var(--amber)">${warnN} with warnings</span>`:''}</div>
-    ${dupMap.length?`<div class="err">⚠ These fields are mapped to more than one column; only the first is used: ${esc(dupMap.join(', '))}.</div>`:''}
-    ${allEmpty?`<div class="err">Nothing to import — no columns are mapped to real fields. Go back and map at least Mouse # / Sex / Genotype / DOB, or <button class="btn sm" onclick="__impHelp()">✉ email Leo for help</button></div>`:''}
+    ${multiCol.length?`<div class="err">⚠ One column is feeding more than one field — double-check: ${esc(multiCol.join('; '))}.</div>`:''}
+    ${(!allEmpty&&missReq.length)?`<div class="sub" style="color:var(--amber);font-size:12px;margin-bottom:8px">Note: recommended field(s) not mapped — ${esc(missReq.join(', '))}. You can still import.</div>`:''}
+    ${allEmpty?`<div class="err">Nothing to import — no columns are matched to real fields. Go back and match at least Mouse # / Sex / Genotype / DOB, or <button class="btn sm" onclick="__impMailLeo()">✉ email Leo for help</button></div>`:''}
     <div class="tablewrap"><table><thead><tr><th>#</th><th>Sex</th><th>Genotype</th><th>Strain</th><th>DOB</th><th>Owner</th><th>Status</th><th>Location</th><th>Warnings</th></tr></thead>
     <tbody>${show.map(b=>`<tr${b.warn.length?' style="background:rgba(251,191,36,.08)"':''}>
       <td>${esc(b.row.tag_id||'—')}</td><td>${esc(b.row.sex||'—')}</td><td class="cohort">${esc(b.row.cohort||'—')}</td>
@@ -1245,7 +1279,9 @@ async function impDoPreview(){
       <td><span class="badge b-${esc(b.row.status)}">${esc(b.row.status)}</span></td><td style="max-width:170px;overflow:hidden;text-overflow:ellipsis">${esc(b.row.current_location||'—')}</td>
       <td style="color:var(--amber);font-size:11px">${esc(b.warn.join('; '))}</td></tr>`).join('')}</tbody></table></div>
     ${built.length>50?`<div class="sub" style="color:var(--muted);font-size:12px">Showing first 50 of ${built.length}.</div>`:''}
-    <div class="modal-actions"><button class="btn sm" id="impBack">← Back to mapping</button>${allEmpty?'':`<button class="btn p" id="impGo">Import ${built.length} mice</button>`}</div>
+    <div class="modal-actions" style="justify-content:space-between">
+      <div style="display:flex;gap:8px"><button class="btn sm" id="impBack">← Back to matching</button><button class="btn sm" onclick="__impMailLeo()" title="Send the file to Leo to reshape">✉ Email Leo</button></div>
+      ${allEmpty?'':`<button class="btn p" id="impGo">Import ${built.length} mice</button>`}</div>
     <div class="err" id="impErr"></div>`;
   $('impBack').onclick=impRenderMap;
   if($('impGo')) $('impGo').onclick=impDoImport;
@@ -1258,7 +1294,7 @@ async function impDoImport(){
   try{
     for(let i=IMP._done;i<rows.length;i+=100){ await api('mice',{method:'POST',headers:{Prefer:'return=minimal'},body:rows.slice(i,Math.min(i+100,rows.length))}); IMP._done=Math.min(i+100,rows.length); $('impErr').textContent=`Imported ${IMP._done}/${rows.length}…`; }
     await audit('mice',null,'IMPORT',null,{source:IMP.file,count:IMP._done,batch_id});
-    toast(`Imported ${IMP._done} mice`); IMP={headers:[],data:[],map:[],file:''}; $('impFile').value='';
+    toast(`Imported ${IMP._done} mice`); IMP={headers:[],data:[],fieldMap:{},file:''}; $('impFile').value='';
     $('impStep').innerHTML='<div class="sub" style="color:var(--green)">✓ Imported. Opening the colony…</div>'; switchTab('colony'); page=0; loadColony();
   }catch(e){ $('impGo').disabled=false;
     try{ await audit('mice',null,'IMPORT_PARTIAL',null,{source:IMP.file,count:IMP._done,batch_id}); }catch(_){}
