@@ -40,7 +40,7 @@ in Supabase Auth + RLS later makes it hard enforcement **without schema changes*
 1. **Create a Supabase project** (supabase.com → New project; free tier is fine for now). Pick a region near Salk (West US).
 2. **Run the schema:** Supabase → SQL Editor → New query → paste all of `schema.sql` → Run. (Run it once.) `schema.sql` already includes the latest columns; **on an existing project, run the `migration_00*.sql` files in order** (001 cohort columns, 002 delete policy, 003 experiments + health status, 004 cage,
 005 Web-maintainer role + multi-assignee requests, 006 request type + which-mice info,
-   007 'collected' status + Guardian Angels pet table, 008 per-user + master passwords) — each is safe to re-run, and the app shows a banner if any is missing. (The app degrades gracefully until a migration is run — e.g. login falls back to the shared password until 008 is applied.)
+   007 'collected' status + Guardian Angels pet table, 008 per-user + master passwords, 009 guardian-angel reactions) — each is safe to re-run, and the app shows a banner if any is missing. (The app degrades gracefully until a migration is run — e.g. login falls back to the shared password until 008 is applied.)
 3. **Add people:** either in the app's **People** tab after logging in, or in SQL:
    ```sql
    insert into app_users (full_name, role) values

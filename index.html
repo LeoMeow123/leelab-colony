@@ -122,6 +122,22 @@
   .gav{width:42px;height:42px;border-radius:50%;padding:2px;background:conic-gradient(from 210deg,#fde68a,#fbbf24,#f59e0b,#fde68a);cursor:pointer;transition:transform .12s}
   .gav:hover{transform:scale(1.12)}
   .gav>img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;background:var(--bg)}
+  .angel .reacts{margin-top:8px;font-size:12px;color:var(--muted);display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+  /* ---- warm login greeting ---- */
+  .greetmodal{max-width:420px;text-align:center;position:relative;overflow:visible}
+  .gclose{position:absolute;top:10px;right:12px;border:none;background:none;color:var(--muted);font-size:16px;cursor:pointer}
+  .greetwrap{display:flex;align-items:center;gap:14px;justify-content:center;margin:6px 0 4px}
+  .greethalo{width:96px;height:96px;flex:none}
+  .bubble{position:relative;background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:12px 14px;font-weight:800;font-size:18px;color:var(--accent);box-shadow:var(--shadow);max-width:210px;text-align:left}
+  .bubble:before{content:"";position:absolute;left:-9px;top:28px;border:6px solid transparent;border-right-color:var(--bg2)}
+  .bubble .bmsg{font-weight:500;font-size:13.5px;color:var(--text);margin-top:6px;line-height:1.45}
+  .greetname{font-weight:700;margin-top:10px}
+  .greetdate{font-size:12px;color:var(--muted);margin-top:2px}
+  .greetreacts{display:flex;gap:10px;justify-content:center;margin-top:16px}
+  .rbtn{display:flex;flex-direction:column;align-items:center;gap:2px;border:1px solid var(--border);background:var(--bg);border-radius:12px;padding:8px 12px;cursor:pointer;font-size:22px;line-height:1;transition:transform .1s,border-color .1s}
+  .rbtn span{font-size:10px;color:var(--muted);font-weight:600}
+  .rbtn:hover{transform:translateY(-2px) scale(1.05);border-color:var(--accent)}
+  .rbtn:active{transform:scale(.95)}
   .pager{display:flex;align-items:center;gap:10px;justify-content:flex-end;padding:10px;color:var(--muted);font-size:12px}
   .empty{text-align:center;color:var(--muted);padding:40px}
 
@@ -395,6 +411,10 @@
   <div class="modal" id="emailModal"></div>
 </div>
 
+<div class="overlay" id="greetOverlay">
+  <div class="modal greetmodal" id="greetModal"></div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -516,7 +536,7 @@ $('loginBtn').onclick=async()=>{
     try{ urow=(await api('app_users?id=eq.'+id+'&select=password_sha256,must_change_password')).data[0]||{}; }
     catch(_){ // migration_008 not run yet → original shared-password behaviour so nobody is locked out
       if(!shared||got!==shared){ $('loginErr').textContent='Wrong password.'; return; }
-      USER={id:u.id,full_name:u.full_name,role:u.role,email:u.email||null}; localStorage.setItem('mc:user',JSON.stringify(USER)); localStorage.removeItem('mc:realuser'); startApp(); return; }
+      USER={id:u.id,full_name:u.full_name,role:u.role,email:u.email||null}; localStorage.setItem('mc:user',JSON.stringify(USER)); localStorage.removeItem('mc:realuser'); startApp('login'); return; }
     let mustChange=false, viaMaster=false;
     if(master && got===master){ viaMaster=true; }                 // break-glass: master works on any account
     else if(urow.password_sha256){                                // they've set a personal password
@@ -528,9 +548,9 @@ $('loginBtn').onclick=async()=>{
     }
     USER={id:u.id,full_name:u.full_name,role:u.role,email:u.email||null};
     localStorage.setItem('mc:user',JSON.stringify(USER)); localStorage.removeItem('mc:realuser');
-    if(viaMaster){ audit('app_users',u.id,'MASTER_LOGIN',null,{note:'signed in with the master password'}); startApp(); return; }
+    if(viaMaster){ audit('app_users',u.id,'MASTER_LOGIN',null,{note:'signed in with the master password'}); startApp('login'); return; }
     if(mustChange){ showSetPw(); return; }                        // forced to choose a personal password
-    startApp();
+    startApp('login');
   }catch(e){ $('loginErr').textContent='Connection error: '+e.message; }
 };
 // ---- forced / self-service password change ----
@@ -546,7 +566,7 @@ $('setpwBtn').onclick=async()=>{
     await api('app_users?id=eq.'+USER.id,{method:'PATCH',body:{password_sha256:h,must_change_password:false}});
     await audit('app_users',USER.id,'SET_PASSWORD',null,{self:true});
     const me=USERS.find(u=>u.id===USER.id); if(me)me.must_change_password=false;
-    toast('Password set — you’re all set'); startApp();
+    toast('Password set — you’re all set'); startApp('login');
   }catch(e){ $('setpwErr').textContent='Failed: '+e.message; }
 };
 $('changePw').onclick=()=>showSetPw();
@@ -567,7 +587,7 @@ window.stopImpersonate=stopImpersonate;
 // =====================================================================
 // APP
 // =====================================================================
-function startApp(){
+function startApp(greetMode){
   const me=USERS.find(u=>u.id===USER.id);
   if(me&&me.must_change_password&&!localStorage.getItem('mc:realuser')){ showSetPw(); return; } // persisted session that still owes a personal password (not while impersonating)
   showScreen('app');
@@ -580,7 +600,9 @@ function startApp(){
   renderCohortForm();
   switchTab('colony');
   loadColony();
+  renderGuardianStrip();
   if(!USER.email) promptEmail(); // first time only — once saved it never asks again
+  else if(greetMode && !localStorage.getItem('mc:realuser')) greet(greetMode==='login'); // warm hello (not while impersonating; skip if we're asking for email)
 }
 function promptEmail(){
   $('emailModal').innerHTML=`<h2 style="margin:0 0 4px">Your email</h2>
@@ -1957,19 +1979,26 @@ async function saveAngel(){
     toast('Welcome to the flock, '+name+'! 😇');
   }catch(e){ $('ang_err').textContent='Failed: '+e.message; if($('ang_save'))$('ang_save').disabled=false; }
 }
+async function loadReactionCounts(){ // {angel_id: {love:n,cute:n,care:n,sad:n}}
+  const map={}; try{ const rr=(await api('angel_reactions?select=angel_id,reaction')).data||[];
+    rr.forEach(x=>{ const m=map[x.angel_id]=map[x.angel_id]||{}; m[x.reaction]=(m[x.reaction]||0)+1; }); }catch(_){}
+  return map; }
 async function renderGuardians(){
   $('angelList').innerHTML='<div class="sub" style="color:var(--muted)">Loading…</div>';
-  const gs=await loadGuardians(true);
+  const gs=await loadGuardians(true); const rc=await loadReactionCounts();
   $('angelHdr').textContent = gs.length?('· '+gs.length):'';
   if(!gs.length){ $('angelList').innerHTML='<div class="empty">No guardian angels yet. Click “＋ Add your pet” to be the first. 🐾</div>'; return; }
-  $('angelList').innerHTML='<div class="angelgrid">'+gs.map(g=>`<div class="angel angelcard">
+  $('angelList').innerHTML='<div class="angelgrid">'+gs.map(g=>{
+    const c=rc[g.id]||{}, tally=REACTIONS.map(r=>((c[r.k]||0)>0)?`${r.e} ${c[r.k]}`:'').filter(Boolean).join('  ');
+    return `<div class="angel angelcard">
     ${(USER&&(g.created_by===USER.id||isMgr()))?`<button class="btn r sm rm" data-del="${esc(g.id)}" style="position:absolute;top:8px;right:8px" title="remove">✕</button>`:''}
     <div class="halo"><img src="${esc(g.photo||'')}" alt="${esc(g.name)}" loading="lazy"></div>
     <div class="nm">${esc(g.name)}</div>
     <div class="sp">${esc(g.species||'')}</div>
     ${g.message?`<div class="msg">“${esc(g.message)}”</div>`:''}
     <div class="own">🕊️ ${esc(g.owner_name||userName(g.owner_id)||'')}</div>
-  </div>`).join('')+'</div>';
+    <div class="reacts">${tally||'<span style="opacity:.6">no reactions yet</span>'}</div>
+  </div>`; }).join('')+'</div>';
   $('angelList').querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>delAngel(b.dataset.del));
 }
 async function delAngel(id){ if(!confirm('Remove this guardian angel?'))return;
@@ -1986,6 +2015,74 @@ async function renderGuardianStrip(){
 }
 if($('angelAddBtn')) $('angelAddBtn').onclick=()=>renderAngelForm(true);
 
+// =====================================================================
+// Warm login greeting — a guardian angel of the moment says hi
+// =====================================================================
+const REACTIONS=[{k:'love',e:'❤️',l:'Love'},{k:'cute',e:'🥰',l:'Cute'},{k:'care',e:'🤗',l:'Care'},{k:'sad',e:'😢',l:'Sad'}];
+const WARM_MSGS=[
+  "Don't work too hard — give yourself a break 🌿",
+  "You are awesome. Truly. ✨",
+  "Enjoy your day! ☀️",
+  "You've got this 💪",
+  "Remember to drink some water 💧",
+  "Your mice appreciate you 🐭💛",
+  "Take a deep breath — you're doing great 🌸",
+  "Science is lucky to have you 🔬",
+  "Be kind to yourself today 🫶",
+  "One step at a time — you're doing amazing 🐾",
+  "Go get a snack, you earned it 🍪",
+  "Sending you good vibes for today 🌈",
+];
+function petSound(sp){ sp=(sp||'').toLowerCase();
+  if(/cat|kitt/.test(sp))return 'meow~';
+  if(/dog|puppy|pup|doggo/.test(sp))return 'woof woof!';
+  if(/bird|parrot|budgie|cockatiel|finch/.test(sp))return 'tweet tweet~';
+  if(/hamster|mouse|mice|rat|gerbil|guinea/.test(sp))return 'squeak squeak~';
+  if(/rabbit|bunny/.test(sp))return '*happy nose wiggle*';
+  if(/fish/.test(sp))return 'blub blub~';
+  if(/horse|pony/.test(sp))return 'neigh~';
+  if(/frog|toad/.test(sp))return 'ribbit~';
+  if(/turtle|tortoise/.test(sp))return '...slow blink...';
+  if(/cow/.test(sp))return 'moo~';
+  return 'hi there~ 💛'; }
+const gpick=a=>a[Math.floor(Math.random()*a.length)];
+function pacificNow(){ const d=new Date();
+  const date=d.toLocaleDateString('en-US',{timeZone:'America/Los_Angeles',weekday:'long',month:'long',day:'numeric'});
+  const time=d.toLocaleTimeString('en-US',{timeZone:'America/Los_Angeles',hour:'numeric',minute:'2-digit'});
+  return `${date} · ${time} · San Diego time`; }
+function pacificDayStr(){ try{ return new Date().toLocaleDateString('en-CA',{timeZone:'America/Los_Angeles'}); }catch(_){ return ''; } }
+let GREET_ANGEL=null;
+async function greet(force){
+  if(!force){ try{ if(localStorage.getItem('mc:greetday')===pacificDayStr()) return; }catch(_){} } // once per day on plain reloads
+  const gs=await loadGuardians(); if(!gs||!gs.length) return;          // nothing to draw yet
+  const g=gpick(gs); GREET_ANGEL=g; try{ localStorage.setItem('mc:greetday',pacificDayStr()); }catch(_){}
+  const sound=petSound(g.species), msg=gpick(WARM_MSGS);
+  $('greetModal').innerHTML=`
+    <button class="gclose" onclick="__greet.close()" title="close">✕</button>
+    <div class="greetwrap">
+      <div class="halo greethalo"><img src="${esc(g.photo||'')}" alt="${esc(g.name)}"></div>
+      <div class="bubble">${esc(sound)}<div class="bmsg">${esc(msg)}</div></div>
+    </div>
+    <div class="greetname">${esc(g.name)}${g.species?` <span style="color:var(--muted);font-weight:400;font-size:12px">the ${esc(g.species)}</span>`:''} says hi to ${esc((USER&&USER.full_name||'').split(' ')[0]||'you')} 💛</div>
+    <div class="greetdate">${esc(pacificNow())}</div>
+    <div class="greetreacts">${REACTIONS.map(r=>`<button class="rbtn" data-react="${r.k}" title="${r.l}">${r.e}<span>${r.l}</span></button>`).join('')}</div>
+    <div id="greetThanks" style="color:var(--muted);font-size:12px;min-height:18px;margin-top:10px">Give ${esc(g.name)} a little reaction 👇</div>`;
+  $('greetModal').querySelectorAll('[data-react]').forEach(b=>b.onclick=()=>__greet.react(b.dataset.react));
+  $('greetOverlay').classList.add('open');
+}
+window.__greet={
+  close:()=>$('greetOverlay').classList.remove('open'),
+  react:async(k)=>{
+    const r=REACTIONS.find(x=>x.k===k)||{}; const t=$('greetThanks');
+    try{ await api('angel_reactions',{method:'POST',headers:{Prefer:'return=minimal'},body:[{angel_id:GREET_ANGEL.id,user_id:USER.id,reaction:k}]});
+      if(t) t.innerHTML=`${r.e} sent to <b>${esc(GREET_ANGEL.name)}</b> — thank you!`;
+      const at=document.querySelector('.tab.active'); if(at&&at.dataset.tab==='guardians') renderGuardians();
+      setTimeout(()=>$('greetOverlay').classList.remove('open'),1000);
+    }catch(e){ if(t) t.textContent='Couldn’t save the reaction — run migration_009 first.'; }
+  }
+};
+$('greetOverlay').addEventListener('mousedown',e=>{ if(e.target===$('greetOverlay')) $('greetOverlay').classList.remove('open'); });
+
 function showMigrationBanner(){
   if(document.getElementById('migBanner')) return;
   const d=document.createElement('div'); d.id='migBanner';
@@ -1996,13 +2093,13 @@ function showMigrationBanner(){
 async function boot(){
   if(!configured()){ showScreen('setup'); if(URLB)$('cfgUrl').value=URLB; return; }
   await loadRefs();
-  try{ await api('mouse_v?select=batch_id,dob_estimated,facility,cage&limit=0'); await api('requests?select=assignee_ids,request_type,mice_info&limit=0'); await api('guardian_angels?select=id&limit=0'); await api('app_users?select=must_change_password&limit=0'); }catch(_){ showMigrationBanner(); } // a migration hasn't been run yet → warn instead of cryptic save errors
+  try{ await api('mouse_v?select=batch_id,dob_estimated,facility,cage&limit=0'); await api('requests?select=assignee_ids,request_type,mice_info&limit=0'); await api('guardian_angels?select=id&limit=0'); await api('app_users?select=must_change_password&limit=0'); await api('angel_reactions?select=id&limit=0'); }catch(_){ showMigrationBanner(); } // a migration hasn't been run yet → warn instead of cryptic save errors
   // populate selects that persist across screens
   $('fOwner').innerHTML='<option value="">any</option>'+USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
   $('fCohort').innerHTML='<option value="">any</option>'+COHORTS.map(c=>`<option>${esc(c)}</option>`).join('');
   $('fFac').innerHTML='<option value="">any</option>'+FACILITIES.map(f=>`<option>${esc(f)}</option>`).join('');
   fillBatchValue();
-  if(USER&&USER.id){ startApp(); renderGuardianStrip(); } else { showLogin(); }
+  if(USER&&USER.id){ startApp('resume'); } else { showLogin(); }
 }
 boot();
 })();

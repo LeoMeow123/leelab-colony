@@ -163,6 +163,15 @@ create table if not exists guardian_angels (
   created_at timestamptz default now()
 );
 
+create table if not exists angel_reactions (
+  id uuid primary key default gen_random_uuid(),
+  angel_id uuid references guardian_angels(id) on delete cascade,
+  user_id uuid references app_users(id),
+  reaction text,               -- love / cute / care / sad
+  created_at timestamptz default now()
+);
+create index if not exists angel_reactions_angel_idx on angel_reactions(angel_id);
+
 -- ---------- import staging + audit ----------
 create table if not exists raw_import (
   id uuid primary key default gen_random_uuid(),
@@ -221,11 +230,11 @@ do $$
 declare
   t text;
   all_tbls  text[] := array['app_users','app_config','alleles','mice','mouse_allele',
-    'experiments','experiment_mice','procedures','requests','request_comments','raw_import','audit_log','guardian_angels'];
+    'experiments','experiment_mice','procedures','requests','request_comments','raw_import','audit_log','guardian_angels','angel_reactions'];
   upd_tbls  text[] := array['app_users','app_config','alleles','mice','mouse_allele',
-    'experiments','experiment_mice','procedures','requests','request_comments','raw_import','guardian_angels'];
+    'experiments','experiment_mice','procedures','requests','request_comments','raw_import','guardian_angels','angel_reactions'];
   del_tbls  text[] := array['mice','mouse_allele','experiment_mice','procedures','request_comments',
-    'requests','raw_import','alleles','experiments','guardian_angels'];
+    'requests','raw_import','alleles','experiments','guardian_angels','angel_reactions'];
 begin
   foreach t in array all_tbls loop
     execute format('alter table %I enable row level security;', t);
