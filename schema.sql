@@ -244,7 +244,7 @@ on conflict (symbol) do nothing;
 --    needed; schema-qualify as extensions.digest or you may get "function does not exist".)
 insert into app_config (key, value) values
   ('shared_password_sha256', 'b7ac17bc40de276cd65899996b28af64dba5f260ea9aff7d125e7f7a47229785'),
-  ('cohorts',   'WT,APP,Tau,PD'),
+  ('cohorts',   'WT,APP,Tau,PD,Cdh18KO,Other'),
   ('facilities','Salk'),
   ('locations', '')
 on conflict (key) do nothing;

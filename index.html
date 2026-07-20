@@ -280,7 +280,7 @@
       <span class="sub" id="reqCount" style="color:var(--muted);font-size:12px"></span>
     </div>
     <div class="tablewrap"><table>
-      <thead><tr><th title="bump priority">▲</th><th>Type</th><th>Subject</th><th>Needs</th><th>By</th><th>Assignee</th><th>Status</th><th>Date</th></tr></thead>
+      <thead><tr><th title="priority — ▲ raise / ▼ lower">Pri</th><th>Type</th><th>Subject</th><th>Needs</th><th>By</th><th>Assignee</th><th>Status</th><th>Date</th></tr></thead>
       <tbody id="reqBody"></tbody>
     </table></div>
   </div>
@@ -298,6 +298,7 @@
     <div id="needsList"></div>
   </div>
 </div>
+<datalist id="cohortDL"></datalist>
 
 <!-- MOUSE DETAIL / EDIT MODAL -->
 <div class="overlay" id="detailOverlay">
@@ -359,11 +360,12 @@ async function sha256(s){ const b=await crypto.subtle.digest('SHA-256',new TextE
 function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1800); }
 
 // ---------- caches ----------
-let USERS=[], COHORTS=['WT','APP','Tau','PD'], FACILITIES=['CRAF','SAF','EBS','Other'];
+let USERS=[], COHORTS=['WT','APP','Tau','PD','Cdh18KO','Other'], FACILITIES=['CRAF','SAF','EBS','Other'];
 async function loadRefs(){
   try{ const u=await api('app_users?select=id,full_name,email,role,is_active&order=full_name'); USERS=u.data||[]; }catch(_){ USERS=[]; }
   try{ const c=await api('app_config?key=eq.cohorts&select=value'); if(c.data&&c.data[0]&&c.data[0].value) COHORTS=c.data[0].value.split(',').map(s=>s.trim()).filter(Boolean); }catch(_){}
   try{ const c=await api('app_config?key=eq.facilities&select=value'); if(c.data&&c.data[0]&&c.data[0].value) FACILITIES=c.data[0].value.split(',').map(s=>s.trim()).filter(Boolean); }catch(_){}
+  refreshCohortDL();
 }
 const userName=id=>{ const u=USERS.find(x=>x.id===id); return u?u.full_name:''; };
 const userEmail=id=>{ const u=USERS.find(x=>x.id===id); return u?(u.email||null):null; };
@@ -375,6 +377,12 @@ function assigneeNames(r){ const ids=(r.assignee_ids&&r.assignee_ids.length)?r.a
 function ownerOptions(sel){ return '<option value="">—</option>'+USERS.map(u=>`<option value="${u.id}"${u.id===sel?' selected':''}>${esc(u.full_name)}</option>`).join(''); }
 function cohortOptions(sel){ let list=COHORTS.slice(); if(sel&&list.indexOf(sel)<0)list=[sel].concat(list); // keep a stored value that's no longer in the vocab so edits don't wipe it
   return '<option value="">—</option>'+list.map(c=>`<option${c===sel?' selected':''}>${esc(c)}</option>`).join(''); }
+// Genotype entry is a typeable combobox: pick a known one OR type a new/other genotype. Values reuse the shared #cohortDL datalist.
+function cohortInput(id,val){ return `<input class="in" id="${esc(id)}" list="cohortDL" value="${esc(val||'')}" autocomplete="off" placeholder="type or pick — e.g. WT, Tau, Cdh18KO, Other">`; }
+function refreshCohortDL(){ const dl=$('cohortDL'); if(dl) dl.innerHTML=COHORTS.map(c=>`<option value="${esc(c)}"></option>`).join(''); }
+async function ensureCohort(val){ val=(val||'').trim(); if(!val||COHORTS.some(c=>c.toLowerCase()===val.toLowerCase()))return; // a typed-in genotype becomes reusable everywhere
+  COHORTS.push(val); refreshCohortDL();
+  try{ await api('app_config',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:[{key:'cohorts',value:COHORTS.join(',')}]}); }catch(_){} }
 function facilityOptions(sel){ return FACILITIES.map(f=>`<option${f===sel?' selected':''}>${esc(f)}</option>`).join(''); }
 function rangeStr(from,to){ from=(from||'').trim(); to=(to||'').trim(); if(!from&&!to)return null; if(!to||to===from)return from||to; return from+'-'+to; }
 function buildLoc(o){ const p=[]; if(o.facility)p.push(o.facility); if(o.room)p.push('Rm '+o.room); if(o.rack)p.push('Rack '+o.rack);
@@ -483,6 +491,7 @@ const COLS=[
   {k:'tag_id',label:'Mouse #'},{k:'sex',label:'Sex'},{k:'cohort',label:'Genotype'},
   {k:'genotype_label',label:'Strain'},{k:'age_months',label:'Age (mo)'},
   {k:'current_location',label:'Location'},{k:'owner_name',label:'Owner'},{k:'status',label:'Status'},
+  {k:'experiments',label:'Experiment'},
 ];
 const STATUSES=['healthy','diseased','sacrificed','dead','transferred','unknown'];
 const EXPERIMENTS=['T-maze','Social','HCM','Open field','Barnes maze','Fear conditioning','Rotarod','Elevated plus maze','Y-maze','Novel object'];
@@ -506,7 +515,7 @@ function grpVal(grp,k){ const ms=grp.ms, g=grp.g;
 
 function buildQuery(forExport){
   const p=[];
-  p.push('select=id,tag_id,sex,cohort,genotype_label,age_months,age_weeks,age_days,current_location,owner_name,responsible_person,status,is_stale,dob,dob_estimated,facility,room,rack,cage,rack_row,rack_col');
+  p.push('select=id,tag_id,sex,cohort,genotype_label,age_months,age_weeks,age_days,current_location,owner_name,responsible_person,status,is_stale,dob,dob_estimated,facility,room,rack,cage,rack_row,rack_col,experiments');
   const q=$('fSearch').value.trim();
   if(q){ const t=encodeURIComponent('*'+q+'*'); p.push(`or=(tag_id.ilike."${t}",genotype_label.ilike."${t}")`); } // quote values so , . ( ) in the search don't split the or()
   if($('fSex').value) p.push('sex=eq.'+$('fSex').value);
@@ -532,7 +541,7 @@ async function loadColony(){
     const from=total?page*pageSize+1:0, to=Math.min(total,(page+1)*pageSize);
     $('pageInfo').textContent=`${from}–${to} of ${total.toLocaleString()}`;
     $('prev').disabled=page<=0; $('next').disabled=(page+1)*pageSize>=total;
-  }catch(e){ $('tbody').innerHTML=`<tr><td colspan="9" class="empty">Error: ${esc(e.message)}<br><span style="font-size:12px">Did you run schema.sql and add people?</span></td></tr>`; }
+  }catch(e){ $('tbody').innerHTML=`<tr><td colspan="10" class="empty">Error: ${esc(e.message)}<br><span style="font-size:12px">Did you run schema.sql and add people?</span></td></tr>`; }
 }
 async function loadGroups(){
   $('prev').disabled=true; $('next').disabled=true;
@@ -596,7 +605,7 @@ function renderHead(){
   const sa=$('selAll'); if(sa) sa.onchange=()=>toggleAllOnPage(sa.checked);
 }
 function renderRows(rows){
-  if(!rows.length){ $('tbody').innerHTML='<tr><td colspan="9" class="empty">No mice match. Add one, or adjust filters.</td></tr>'; syncBatchBar(); return; }
+  if(!rows.length){ $('tbody').innerHTML='<tr><td colspan="10" class="empty">No mice match. Add one, or adjust filters.</td></tr>'; syncBatchBar(); return; }
   $('tbody').innerHTML=rows.map(m=>`<tr data-id="${m.id}">
     <td class="selcol"><input type="checkbox" class="rowsel" data-id="${m.id}"${SEL.has(m.id)?' checked':''}></td>
     <td><b>${esc(m.tag_id||'—')}</b></td>
@@ -607,6 +616,7 @@ function renderRows(rows){
     <td>${esc(m.current_location||'')}</td>
     <td>${esc(m.owner_name||'')}</td>
     <td><span class="badge b-${esc(m.status)}">${esc(m.status)}</span>${m.is_stale?'<span class="badge b-stale">stale</span>':''}</td>
+    <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(m.experiments||'')}">${esc(m.experiments||'—')}</td>
   </tr>`).join('');
   $('tbody').querySelectorAll('tr').forEach(tr=>tr.onclick=(e)=>{ if(e.target.classList.contains('rowsel'))return; openDetail(tr.dataset.id); });
   $('tbody').querySelectorAll('.rowsel').forEach(cb=>cb.onchange=()=>{ if(cb.checked)SEL.add(cb.dataset.id); else SEL.delete(cb.dataset.id); syncChecks(); });
@@ -742,7 +752,7 @@ function fieldsHtml(m){
     <div class="field"><label>Sex</label><select class="in" id="e_sex"><option value="">—</option>${['M','F','U'].map(s=>`<option${m.sex===s?' selected':''}>${s}</option>`).join('')}</select></div>
     <div class="field"><label>DOB ${m.dob_estimated?'<span style="color:var(--amber)">(est.)</span>':''}</label><input class="in" id="e_dob" type="date" value="${esc(m.dob||'')}"></div>
     <div class="field"><label>DOB estimated?</label><select class="in" id="e_dobest"><option value="">no</option><option value="1"${m.dob_estimated?' selected':''}>yes</option></select></div>
-    <div class="field"><label>Genotype</label><select class="in" id="e_cohort">${cohortOptions(m.cohort)}</select></div>
+    <div class="field"><label>Genotype</label>${cohortInput('e_cohort',m.cohort)}</div>
     <div class="field"><label>Owner</label><select class="in" id="e_owner">${ownerOptions(m.responsible_person)}</select></div>
     <div class="field"><label>Status</label><select class="in" id="e_status">${STATUSES.map(s=>`<option${(m.status||'healthy')===s?' selected':''}>${s}</option>`).join('')}</select></div>
     <div class="field"><label>Date of death</label><input class="in" id="e_dod" type="date" value="${esc(m.date_of_death||'')}"></div>
@@ -785,6 +795,7 @@ window.__mc={
     try{
       await api(`mice?id=eq.${curMouse.id}`,{method:'PATCH',headers:{Prefer:'return=representation'},body:patch});
       await audit('mice',curMouse.id,'UPDATE',curMouse,patch);
+      ensureCohort(patch.cohort); // a typed-in genotype becomes a reusable option
       toast('Saved'); closeDetail(); loadColony();
     }catch(e){ $('editErr').textContent=e.message; }
   },
@@ -837,7 +848,7 @@ function renderCohortForm(){
   CAGES=[newCage()];
   $('cohortForm').innerHTML=`
     <div class="grid3">
-      <div class="field"><label>Genotype *</label><select class="in" id="c_cohort">${cohortOptions('')}</select></div>
+      <div class="field"><label>Genotype *</label>${cohortInput('c_cohort','')}</div>
       <div class="field"><label>Owner *</label><select class="in" id="c_owner">${ownerOptions('')}</select></div>
       <div class="field"><label>Strain</label><input class="in" id="c_geno" placeholder="e.g. C57BL/6, hMAP"></div>
     </div>
@@ -904,6 +915,7 @@ $('addSave').onclick=async()=>{
   try{
     await api('mice',{method:'POST',headers:{Prefer:'return=minimal'},body:rows});
     await audit('mice',null,'INSERT_COHORT',null,{cohort,owner:userName(owner),count:total,cages:CAGES.length,batch_id,dob_estimated:dobEst});
+    ensureCohort(cohort); // a typed-in genotype becomes a reusable option everywhere
     let extra='';
     if(pending>0 && $('c_eartag').checked){
       await api('requests',{method:'POST',body:[{requester_id:USER.id, subject:`Ear-tag ${pending} ${cohort} mice`, request_type:'Ear-tag',
@@ -1373,7 +1385,7 @@ async function renderRequests(){
   $('reqCount').textContent=rows.length+' request'+(rows.length!==1?'s':'');
   if(!rows.length){ $('reqBody').innerHTML='<tr><td colspan="8" class="empty">No requests. Click “New request” to ask for mice.</td></tr>'; return; }
   $('reqBody').innerHTML=rows.map(r=>`<tr data-id="${r.id}">
-    <td><button class="btn sm" data-bump="${r.id}" data-pri="${r.priority||0}" title="bump priority">▲ ${r.priority||0}</button></td>
+    <td style="white-space:nowrap"><button class="btn sm" data-bump="${r.id}" data-pri="${r.priority||0}" data-dir="1" title="raise priority">▲</button> <span style="font-size:12px;color:var(--muted)">${r.priority||0}</span> <button class="btn sm" data-bump="${r.id}" data-pri="${r.priority||0}" data-dir="-1" title="lower priority"${(r.priority||0)<=0?' disabled':''}>▼</button></td>
     <td>${reqTypeChip(r.request_type)}</td>
     <td><b>${esc(r.subject)}</b></td>
     <td>${esc(reqNeeds(r))}</td>
@@ -1384,11 +1396,12 @@ async function renderRequests(){
   </tr>`).join('');
   $('reqBody').querySelectorAll('tr').forEach(tr=>tr.onclick=e=>{
     const b=e.target.closest('[data-bump]');
-    if(b){ e.stopPropagation(); bumpReq(b.dataset.bump,+b.dataset.pri); return; }
+    if(b){ e.stopPropagation(); bumpReq(b.dataset.bump,+b.dataset.pri,+b.dataset.dir||1); return; }
     openReq(tr.dataset.id);
   });
 }
-async function bumpReq(id,pri){ try{ await api('requests?id=eq.'+id,{method:'PATCH',body:{priority:pri+1}}); reqTabsRefresh(); }catch(e){ toast('Failed: '+e.message); } }
+async function bumpReq(id,pri,dir){ const next=Math.max(0,(pri||0)+(dir||1)); if(next===(pri||0))return; // clamp at 0 — no negative priority
+  try{ await api('requests?id=eq.'+id,{method:'PATCH',body:{priority:next}}); reqTabsRefresh(); }catch(e){ toast('Failed: '+e.message); } }
 
 // ---------- Mice needed (breeding board) ----------
 async function renderNeeds(){
@@ -1404,10 +1417,10 @@ async function renderNeeds(){
   $('needsHdr').textContent=rows.length?('· '+rows.length+(f==='active'?' open':'')):'';
   if(!rows.length){ $('needsList').innerHTML='<div class="empty">No mice needs right now. When someone files a <b>Request for mice</b> or <b>Breed</b>, it appears here so the breeding manager knows what to make.</div>'; return; }
   $('needsList').innerHTML=`<div class="tablewrap"><table>
-    <thead><tr><th title="bump priority">▲</th><th>What's needed</th><th>Type</th><th>For / purpose</th><th>Requested by</th><th>Breeder / assignee</th><th>Status</th><th title="how long it's been waiting">Waiting</th></tr></thead>
+    <thead><tr><th title="priority — ▲ raise / ▼ lower">Pri</th><th>What's needed</th><th>Type</th><th>For / purpose</th><th>Requested by</th><th>Breeder / assignee</th><th>Status</th><th title="how long it's been waiting">Waiting</th></tr></thead>
     <tbody>${rows.map(r=>{ const active=['open','routed_to_breeding'].indexOf(r.status)>=0, d=daysSince(r.created_at);
       return `<tr data-open="${esc(r.id)}" style="cursor:pointer">
-      <td><button class="btn sm" data-bump="${r.id}" data-pri="${r.priority||0}" title="bump priority">▲ ${r.priority||0}</button></td>
+      <td style="white-space:nowrap"><button class="btn sm" data-bump="${r.id}" data-pri="${r.priority||0}" data-dir="1" title="raise priority">▲</button> <span style="font-size:12px;color:var(--muted)">${r.priority||0}</span> <button class="btn sm" data-bump="${r.id}" data-pri="${r.priority||0}" data-dir="-1" title="lower priority"${(r.priority||0)<=0?' disabled':''}>▼</button></td>
       <td><b>${esc(reqNeeds(r))}</b></td>
       <td>${reqTypeChip(r.request_type)}</td>
       <td>${esc(r.subject||'')}</td>
@@ -1417,7 +1430,7 @@ async function renderNeeds(){
       <td style="white-space:nowrap;font-size:12px;color:${(active&&d!=null&&d>=30)?'var(--amber)':'var(--muted)'}">${esc(waitLabel(r.created_at))}</td>
     </tr>`; }).join('')}</tbody></table></div>`;
   $('needsList').querySelectorAll('tr[data-open]').forEach(tr=>tr.onclick=e=>{
-    const b=e.target.closest('[data-bump]'); if(b){ e.stopPropagation(); bumpReq(b.dataset.bump,+b.dataset.pri); return; }
+    const b=e.target.closest('[data-bump]'); if(b){ e.stopPropagation(); bumpReq(b.dataset.bump,+b.dataset.pri,+b.dataset.dir||1); return; }
     openReq(tr.dataset.open); });
 }
 let NEEDS=[];
@@ -1434,7 +1447,7 @@ function reqFieldsHtml(r){ r=r||{}; const asel=(r.assignee_ids&&r.assignee_ids.l
     <details id="q_needwrap"${NEED_TYPES.indexOf(r.request_type)>=0?' open':''}><summary style="cursor:pointer;font-size:13px;color:var(--accent)">Mice needed — strain · sex · age · quantity (for “Request for mice” / “Breed”)</summary>
       <div class="grid3" style="margin-top:6px">
         <div class="field"><label>Sex</label><select class="in" id="q_sex"><option value="">any</option>${['M','F'].map(x=>`<option${r.needed_sex===x?' selected':''}>${x}</option>`).join('')}</select></div>
-        <div class="field"><label>Genotype</label><select class="in" id="q_cohort">${cohortOptions(r.needed_cohort||'')}</select></div>
+        <div class="field"><label>Genotype</label>${cohortInput('q_cohort',r.needed_cohort||'')}</div>
         <div class="field"><label>Quantity</label><input class="in" id="q_qty" type="number" min="1" value="${esc(r.quantity!=null?r.quantity:'')}" placeholder="1"></div>
         <div class="field"><label>Age ≥ (wk)</label><input class="in" id="q_agemin" type="number" value="${esc(r.needed_age_min_weeks!=null?r.needed_age_min_weeks:'')}"></div>
         <div class="field"><label>Age ≤ (wk)</label><input class="in" id="q_agemax" type="number" value="${esc(r.needed_age_max_weeks!=null?r.needed_age_max_weeks:'')}"></div>
