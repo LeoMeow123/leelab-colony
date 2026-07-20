@@ -92,8 +92,36 @@
   .b-diseased{background:rgba(251,191,36,.18);color:var(--amber)}
   .b-dead,.b-sacrificed,.b-unknown{background:rgba(122,127,148,.2);color:var(--muted)}
   .b-transferred{background:rgba(79,156,249,.15);color:var(--accent)}
+  .b-collected{background:rgba(124,58,237,.16);color:var(--purple)}
   .b-stale{background:rgba(251,191,36,.15);color:var(--amber);margin-left:5px}
   .cohort{font-weight:600}
+  /* ---- In Memoriam (mouse graveyard) ---- */
+  .memgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px;margin-top:12px}
+  .grave{position:relative;background:linear-gradient(180deg,var(--bg2),var(--bg));border:1px solid var(--border);border-top:3px solid var(--purple);border-radius:14px 14px 10px 10px;padding:16px 14px 14px;text-align:center;box-shadow:var(--shadow)}
+  .grave .cand{font-size:22px;line-height:1}
+  .grave .tag{font-weight:700;font-size:15px;margin-top:4px}
+  .grave .epi{font-size:12px;color:var(--muted);font-style:italic;margin-top:8px;min-height:30px}
+  .grave .meta{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5}
+  /* ---- Guardian Angels ---- */
+  .angelgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px;margin-top:14px}
+  .angel{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:16px 12px;text-align:center;box-shadow:var(--shadow);transition:transform .12s,box-shadow .12s}
+  .angel:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(0,0,0,.14)}
+  .halo{width:104px;height:104px;margin:0 auto;border-radius:50%;padding:4px;background:conic-gradient(from 210deg,#fde68a,#fbbf24,#f59e0b,#fde68a);box-shadow:0 0 0 1px rgba(0,0,0,.05),0 6px 18px rgba(251,191,36,.35)}
+  .halo>img{width:100%;height:100%;border-radius:50%;object-fit:cover;background:var(--bg);display:block}
+  .angel .nm{font-weight:700;margin-top:10px}
+  .angel .sp{font-size:11px;color:var(--muted)}
+  .angel .msg{font-size:12px;color:var(--text);margin-top:6px;font-style:italic}
+  .angel .own{font-size:11px;color:var(--muted);margin-top:6px}
+  .angel .rm{position:absolute;opacity:0}
+  .angelcard{position:relative}
+  .angelcard:hover .rm{opacity:1}
+  /* ---- Guardian strip on the colony ---- */
+  .gstrip{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:linear-gradient(90deg,rgba(251,191,36,.10),rgba(124,58,237,.08));border:1px solid var(--border);border-radius:14px;padding:10px 14px;margin-bottom:14px}
+  .gstrip .lead{font-size:12px;color:var(--muted);font-weight:600;white-space:nowrap}
+  .gstrip .avs{display:flex;flex-wrap:wrap;gap:8px}
+  .gav{width:42px;height:42px;border-radius:50%;padding:2px;background:conic-gradient(from 210deg,#fde68a,#fbbf24,#f59e0b,#fde68a);cursor:pointer;transition:transform .12s}
+  .gav:hover{transform:scale(1.12)}
+  .gav>img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;background:var(--bg)}
   .pager{display:flex;align-items:center;gap:10px;justify-content:flex-end;padding:10px;color:var(--muted);font-size:12px}
   .empty{text-align:center;color:var(--muted);padding:40px}
 
@@ -158,6 +186,8 @@
       <button class="tab" data-tab="requests">Requests</button>
       <button class="tab" data-tab="needs">Mice needed</button>
       <button class="tab" data-tab="myreq">My requests</button>
+      <button class="tab" data-tab="graveyard">🕯️ In Memoriam</button>
+      <button class="tab" data-tab="guardians">😇 Guardian Angels</button>
       <button class="tab" data-tab="people">People</button>
     </div>
     <div class="who"><span>👤 <b id="whoName"></b> <span class="pill" id="whoRole"></span></span><button class="btn sm" id="themeToggle" title="Light / dark">☾</button><button class="btn sm" id="logout">Logout</button></div>
@@ -165,12 +195,13 @@
 
   <!-- COLONY -->
   <div class="wrap" id="tab-colony">
+    <div id="guardianStrip"></div>
     <div class="filters">
       <div class="f grow"><label>Search (mouse # / strain)</label><input class="in" id="fSearch" placeholder="e.g. 4471 or hMAP"></div>
       <div class="f"><label>Sex</label><select class="in" id="fSex"><option value="">any</option><option>M</option><option>F</option><option>U</option></select></div>
       <div class="f"><label>Genotype</label><select class="in" id="fCohort"><option value="">any</option></select></div>
       <div class="f"><label>Facility</label><select class="in" id="fFac"><option value="">any</option></select></div>
-      <div class="f"><label>Status</label><select class="in" id="fStatus"><option value="" selected>any</option><option value="healthy">healthy</option><option>diseased</option><option>sacrificed</option><option>dead</option><option>transferred</option><option>unknown</option></select></div>
+      <div class="f"><label>Status</label><select class="in" id="fStatus"><option value="" selected>any</option><option value="healthy">healthy</option><option>diseased</option><option>sacrificed</option><option>dead</option><option>transferred</option><option>collected</option><option>unknown</option></select></div>
       <div class="f"><label>Age ≥ (mo)</label><input class="in" id="fAgeMin" type="number" step="0.1" placeholder="min"></div>
       <div class="f"><label>Age ≤ (mo)</label><input class="in" id="fAgeMax" type="number" step="0.1" placeholder="max"></div>
       <div class="f"><label>Owner</label><select class="in" id="fOwner"><option value="">any</option></select></div>
@@ -249,6 +280,27 @@
       <button class="btn p" id="myreqNew">＋ New request</button>
     </div>
     <div id="myreqList"></div>
+  </div>
+
+  <!-- IN MEMORIAM (mouse graveyard) -->
+  <div class="wrap hidden" id="tab-graveyard">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:8px;margin-bottom:6px">
+      <div><h1 style="font-size:19px;margin:0">🕯️ In Memoriam <span class="em" id="graveHdr"></span></h1>
+      <div class="sub" style="color:var(--muted);font-size:12px">Honoring the mice who gave everything for science. Every one moved us closer to a cure. 🐭🔬💜</div></div>
+      <select class="in" id="graveFilter" style="width:auto"><option value="departed">All departed</option><option value="collected">Collected</option><option value="sacrificed">Sacrificed</option><option value="dead">Deceased</option></select>
+    </div>
+    <div id="graveList"></div>
+  </div>
+
+  <!-- GUARDIAN ANGELS -->
+  <div class="wrap hidden" id="tab-guardians">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:8px;margin-bottom:6px">
+      <div><h1 style="font-size:19px;margin:0">😇 Guardian Angels <span class="em" id="angelHdr"></span></h1>
+      <div class="sub" style="color:var(--muted);font-size:12px">Our pets, watching over the colony. Upload yours to join the flock. 🐾✨</div></div>
+      <button class="btn p" id="angelAddBtn">＋ Add your pet</button>
+    </div>
+    <div id="angelForm"></div>
+    <div id="angelList"></div>
   </div>
 
   <!-- PEOPLE -->
@@ -482,12 +534,14 @@ $('logout').onclick=()=>{ localStorage.removeItem('mc:user'); USER=null; showLog
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>switchTab(t.dataset.tab));
 function switchTab(name){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
-  ['colony','mine','add','import','people','requests','needs','myreq'].forEach(n=>$('tab-'+n).classList.toggle('hidden',n!==name));
+  ['colony','mine','add','import','people','requests','needs','myreq','graveyard','guardians'].forEach(n=>$('tab-'+n).classList.toggle('hidden',n!==name));
   if(name==='people') renderPeople();
   if(name==='requests') renderRequests();
   if(name==='needs') renderNeeds();
   if(name==='mine') renderMine();
   if(name==='myreq') renderMyReq();
+  if(name==='graveyard') renderGraveyard();
+  if(name==='guardians') renderGuardians();
 }
 
 // ---------- colony table ----------
@@ -497,7 +551,7 @@ const COLS=[
   {k:'current_location',label:'Location'},{k:'owner_name',label:'Owner'},{k:'status',label:'Status'},
   {k:'experiments',label:'Experiment'},
 ];
-const STATUSES=['healthy','diseased','sacrificed','dead','transferred','unknown'];
+const STATUSES=['healthy','diseased','sacrificed','dead','transferred','collected','unknown'];
 const EXPERIMENTS=['T-maze','Social','HCM','Open field','Barnes maze','Fear conditioning','Rotarod','Elevated plus maze','Y-maze','Novel object'];
 function expChips(inputId){ return `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px">${EXPERIMENTS.map(e=>`<button type="button" class="btn sm" style="font-size:11px;padding:2px 7px" onclick="expAdd('${inputId}','${esc(e)}')">+ ${esc(e)}</button>`).join('')}</div>`; }
 function expAdd(inputId,tag){ const el=$(inputId); const cur=el.value.split(',').map(s=>s.trim()).filter(Boolean); if(!cur.some(x=>x.toLowerCase()===tag.toLowerCase()))cur.push(tag); el.value=cur.join(', '); el.focus(); }
@@ -1226,6 +1280,7 @@ function impSex(s){ s=(s||'').trim().toLowerCase(); if(s==='m'||s==='male')retur
 function impStatus(s){ s=(s||'').trim().toLowerCase(); if(!s)return 'healthy';
   if(s==='alive'||s==='active'||s==='live')return 'healthy'; if(s==='inactive')return 'dead'; // some sheets use active/inactive for live/dead
   if(STATUSES.indexOf(s)>=0)return s;
+  if(/collect|harvest/.test(s))return 'collected';
   if(/sacrific|euth|cull|kill/.test(s))return 'sacrificed';
   if(/dead|decease|\bdied\b|expired/.test(s))return 'dead';
   if(/disease|sick|\bill\b|unwell/.test(s))return 'diseased';
@@ -1743,6 +1798,103 @@ function setTheme(t){ document.documentElement.dataset.theme = t==='dark'?'dark'
 $('themeToggle').onclick=()=>setTheme(document.documentElement.dataset.theme==='dark'?'light':'dark');
 setTheme(document.documentElement.dataset.theme==='dark'?'dark':'light');
 
+// =====================================================================
+// In Memoriam — the mouse graveyard (dead / sacrificed / collected)
+// =====================================================================
+const GRAVE_STATUSES={departed:['dead','sacrificed','collected'],collected:['collected'],sacrificed:['sacrificed'],dead:['dead']};
+const EPITAPHS=['A very good mouse. 🐭','Ran the maze one last time. 🏁','For science, with love. 🔬','Small paws, big impact. 🐾','Gone, but never forgotten. 💜','Left the world a little wiser. ✨','Rest easy, little one. 🌙','The data lives on. 📊','A true lab legend. 🏆','Off to the great cage in the sky. ☁️'];
+function epitaphFor(id){ let h=0; const s=String(id||''); for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0; return EPITAPHS[h%EPITAPHS.length]; }
+async function renderGraveyard(){
+  const f=$('graveFilter')?$('graveFilter').value:'departed', sts=GRAVE_STATUSES[f]||GRAVE_STATUSES.departed;
+  $('graveList').innerHTML='<div class="sub" style="color:var(--muted)">Loading…</div>';
+  let rows=[];
+  try{ rows=(await api(`mouse_v?status=in.(${sts.join(',')})&select=id,tag_id,cohort,genotype_label,sex,dob,date_of_death,age_months,status,experiments&order=date_of_death.desc.nullslast,dob.desc&limit=2000`)).data||[]; }
+  catch(e){ $('graveList').innerHTML=`<div class="empty">Error: ${esc(e.message)}</div>`; return; }
+  $('graveHdr').textContent = rows.length?('· '+rows.length):'';
+  if(!rows.length){ $('graveList').innerHTML='<div class="empty">No departed mice — long may that last. 🕊️</div>'; return; }
+  $('graveList').innerHTML='<div class="memgrid">'+rows.map(m=>{
+    const born=m.dob?('🎂 '+esc(m.dob)):'', died=m.date_of_death?('🕊️ '+esc(m.date_of_death)):'', exps=(m.experiments||'').trim();
+    return `<div class="grave">
+      <div class="cand">🕯️</div>
+      <div class="tag">#${esc(m.tag_id||'(no tag)')}</div>
+      <div style="font-size:11px;color:var(--muted)">${esc(m.cohort||'')}${m.genotype_label?' · '+esc(m.genotype_label):''}${m.sex?' · '+esc(m.sex):''}</div>
+      <div class="epi">“${esc(epitaphFor(m.id))}”</div>
+      <div class="meta">${born?born+'<br>':''}${died?died:''}${m.age_months!=null?(died?' · ':'')+'lived '+m.age_months+' mo':''}${exps?'<br>🔬 '+esc(exps):''}</div>
+      <div style="margin-top:8px"><span class="badge b-${esc(m.status)}">${esc(m.status)}</span></div>
+    </div>`;
+  }).join('')+'</div>';
+}
+if($('graveFilter')) $('graveFilter').onchange=renderGraveyard;
+
+// =====================================================================
+// Guardian Angels — lab members' pets (photos as resized base64 data-URLs)
+// =====================================================================
+let GUARDIANS=null;
+async function loadGuardians(force){ if(GUARDIANS&&!force) return GUARDIANS;
+  try{ GUARDIANS=(await api('guardian_angels?select=*&order=created_at.desc')).data||[]; }catch(_){ GUARDIANS=[]; }
+  return GUARDIANS; }
+function resizeImage(file,maxDim,quality){ return new Promise((res,rej)=>{
+  const img=new Image(), url=URL.createObjectURL(file);
+  img.onload=()=>{ URL.revokeObjectURL(url); let w=img.width,h=img.height; const sc=Math.min(1,maxDim/Math.max(w,h)); w=Math.max(1,Math.round(w*sc)); h=Math.max(1,Math.round(h*sc));
+    const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h);
+    try{ res(c.toDataURL('image/jpeg',quality)); }catch(e){ rej(e); } };
+  img.onerror=()=>{ URL.revokeObjectURL(url); rej(new Error('Could not read that image')); };
+  img.src=url; }); }
+function renderAngelForm(open){
+  $('angelForm').innerHTML = open?`<div class="card" style="max-width:520px;margin-bottom:14px">
+    <div class="grid2">
+      <div class="field"><label>Pet's name *</label><input class="in" id="ang_name" placeholder="e.g. Mochi"></div>
+      <div class="field"><label>Species</label><input class="in" id="ang_species" placeholder="dog / cat / hamster / …"></div>
+    </div>
+    <div class="field"><label>A little message</label><input class="in" id="ang_msg" placeholder="e.g. Watching over the WT cohort 🐾"></div>
+    <div class="field"><label>Photo *</label><input class="in" id="ang_photo" type="file" accept="image/*"></div>
+    <div class="modal-actions"><button class="btn sm" onclick="renderAngelForm(false)">Cancel</button><button class="btn p" id="ang_save">Add to the flock</button></div>
+    <div class="err" id="ang_err"></div></div>`:'';
+  if(open&&$('ang_save')) $('ang_save').onclick=saveAngel;
+}
+window.renderAngelForm=renderAngelForm;
+async function saveAngel(){
+  const name=$('ang_name').value.trim(); if(!name){ $('ang_err').textContent='Give your pet a name.'; return; }
+  const file=$('ang_photo').files[0]; if(!file){ $('ang_err').textContent='Pick a photo.'; return; }
+  $('ang_err').textContent='Uploading…'; $('ang_save').disabled=true;
+  try{
+    const photo=await resizeImage(file,480,0.82);
+    const rec={name, species:$('ang_species').value.trim()||null, message:$('ang_msg').value.trim()||null,
+      owner_id:USER.id, owner_name:USER.full_name, photo, created_by:USER.id};
+    await api('guardian_angels',{method:'POST',headers:{Prefer:'return=minimal'},body:[rec]});
+    await loadGuardians(true); renderAngelForm(false); renderGuardians(); renderGuardianStrip();
+    toast('Welcome to the flock, '+name+'! 😇');
+  }catch(e){ $('ang_err').textContent='Failed: '+e.message; if($('ang_save'))$('ang_save').disabled=false; }
+}
+async function renderGuardians(){
+  $('angelList').innerHTML='<div class="sub" style="color:var(--muted)">Loading…</div>';
+  const gs=await loadGuardians(true);
+  $('angelHdr').textContent = gs.length?('· '+gs.length):'';
+  if(!gs.length){ $('angelList').innerHTML='<div class="empty">No guardian angels yet. Click “＋ Add your pet” to be the first. 🐾</div>'; return; }
+  $('angelList').innerHTML='<div class="angelgrid">'+gs.map(g=>`<div class="angel angelcard">
+    ${(USER&&(g.created_by===USER.id||isMgr()))?`<button class="btn r sm rm" data-del="${esc(g.id)}" style="position:absolute;top:8px;right:8px" title="remove">✕</button>`:''}
+    <div class="halo"><img src="${esc(g.photo||'')}" alt="${esc(g.name)}" loading="lazy"></div>
+    <div class="nm">${esc(g.name)}</div>
+    <div class="sp">${esc(g.species||'')}</div>
+    ${g.message?`<div class="msg">“${esc(g.message)}”</div>`:''}
+    <div class="own">🕊️ ${esc(g.owner_name||userName(g.owner_id)||'')}</div>
+  </div>`).join('')+'</div>';
+  $('angelList').querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>delAngel(b.dataset.del));
+}
+async function delAngel(id){ if(!confirm('Remove this guardian angel?'))return;
+  try{ await api('guardian_angels?id=eq.'+id,{method:'DELETE'}); await loadGuardians(true); renderGuardians(); renderGuardianStrip(); toast('Removed'); }
+  catch(e){ toast('Failed: '+e.message); } }
+async function renderGuardianStrip(){
+  const el=$('guardianStrip'); if(!el) return;
+  const gs=await loadGuardians();
+  if(!gs||!gs.length){ el.innerHTML=''; return; }
+  el.innerHTML=`<div class="gstrip"><span class="lead">😇 Guardian Angels watching over the colony</span><div class="avs">${
+    gs.slice(0,30).map(g=>`<span class="gav" data-goto="1" title="${esc(g.name)}${g.owner_name?' · '+esc(g.owner_name):''}"><img src="${esc(g.photo||'')}" alt="${esc(g.name)}" loading="lazy"></span>`).join('')
+  }</div></div>`;
+  el.querySelectorAll('[data-goto]').forEach(a=>a.onclick=()=>switchTab('guardians'));
+}
+if($('angelAddBtn')) $('angelAddBtn').onclick=()=>renderAngelForm(true);
+
 function showMigrationBanner(){
   if(document.getElementById('migBanner')) return;
   const d=document.createElement('div'); d.id='migBanner';
@@ -1753,13 +1905,13 @@ function showMigrationBanner(){
 async function boot(){
   if(!configured()){ showScreen('setup'); if(URLB)$('cfgUrl').value=URLB; return; }
   await loadRefs();
-  try{ await api('mouse_v?select=batch_id,dob_estimated,facility,cage&limit=0'); await api('requests?select=assignee_ids,request_type,mice_info&limit=0'); }catch(_){ showMigrationBanner(); } // a migration hasn't been run yet → warn instead of cryptic save errors
+  try{ await api('mouse_v?select=batch_id,dob_estimated,facility,cage&limit=0'); await api('requests?select=assignee_ids,request_type,mice_info&limit=0'); await api('guardian_angels?select=id&limit=0'); }catch(_){ showMigrationBanner(); } // a migration hasn't been run yet → warn instead of cryptic save errors
   // populate selects that persist across screens
   $('fOwner').innerHTML='<option value="">any</option>'+USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
   $('fCohort').innerHTML='<option value="">any</option>'+COHORTS.map(c=>`<option>${esc(c)}</option>`).join('');
   $('fFac').innerHTML='<option value="">any</option>'+FACILITIES.map(f=>`<option>${esc(f)}</option>`).join('');
   fillBatchValue();
-  if(USER&&USER.id){ startApp(); } else { showLogin(); }
+  if(USER&&USER.id){ startApp(); renderGuardianStrip(); } else { showLogin(); }
 }
 boot();
 })();

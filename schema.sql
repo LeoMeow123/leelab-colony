@@ -46,7 +46,7 @@ create table if not exists mice (
   n_cages int,                     -- # cages the cohort occupies (informational)
   batch_id uuid,                   -- groups mice added together as one cohort
   status text not null default 'healthy'
-    check (status in ('healthy','diseased','sacrificed','dead','transferred','unknown')),
+    check (status in ('healthy','diseased','sacrificed','dead','transferred','collected','unknown')),
   responsible_person uuid references app_users(id),
   current_location text,
   experiments text,                -- comma-separated experiment tags (T-maze, Social, HCM, …)
@@ -148,6 +148,19 @@ create table if not exists request_comments (
   created_at timestamptz default now()
 );
 
+-- ---------- Guardian Angels (lab members' pets) ----------
+create table if not exists guardian_angels (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  species text,
+  owner_id uuid references app_users(id),
+  owner_name text,
+  message text,
+  photo text,                  -- data-URL (base64 JPEG, resized client-side; no Storage bucket needed)
+  created_by uuid references app_users(id),
+  created_at timestamptz default now()
+);
+
 -- ---------- import staging + audit ----------
 create table if not exists raw_import (
   id uuid primary key default gen_random_uuid(),
@@ -206,11 +219,11 @@ do $$
 declare
   t text;
   all_tbls  text[] := array['app_users','app_config','alleles','mice','mouse_allele',
-    'experiments','experiment_mice','procedures','requests','request_comments','raw_import','audit_log'];
+    'experiments','experiment_mice','procedures','requests','request_comments','raw_import','audit_log','guardian_angels'];
   upd_tbls  text[] := array['app_users','app_config','alleles','mice','mouse_allele',
-    'experiments','experiment_mice','procedures','requests','request_comments','raw_import'];
+    'experiments','experiment_mice','procedures','requests','request_comments','raw_import','guardian_angels'];
   del_tbls  text[] := array['mice','mouse_allele','experiment_mice','procedures','request_comments',
-    'requests','raw_import','alleles','experiments'];
+    'requests','raw_import','alleles','experiments','guardian_angels'];
 begin
   foreach t in array all_tbls loop
     execute format('alter table %I enable row level security;', t);
