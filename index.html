@@ -972,7 +972,11 @@ async function renderMine(){
     const groups=new Map();
     rows.forEach(m=>{ const k=m.batch_id||('nb¦'+m.cohort+'¦'+m.genotype_label+'¦'+m.dob); if(!groups.has(k))groups.set(k,[]); groups.get(k).push(m); });
     MINE_GROUPS={};
-    let html=`<div class="tablewrap"><table><thead><tr><th>Genotype</th><th>Strain</th><th>Mice</th><th>Age</th><th>Location</th><th>Status</th><th>Experiments</th><th>Added</th><th></th></tr></thead><tbody>`;
+    let html=`<div id="mineBulkBar" style="display:none;align-items:center;gap:10px;background:var(--bg2);border:1px solid var(--red);border-radius:10px;padding:8px 12px;margin-bottom:10px">
+        <b id="mineSelCount">0</b><span class="sub" style="color:var(--muted);font-size:12px">cohort(s) selected</span>
+        <button class="btn r sm" id="mineDelSel">Delete selected</button>
+        <button class="btn sm" id="mineSelClear">Clear</button></div>
+      <div class="tablewrap"><table><thead><tr><th class="selcol"><input type="checkbox" id="mineSelAll" title="select all"></th><th>Genotype</th><th>Strain</th><th>Mice</th><th>Age</th><th>Location</th><th>Status</th><th>Experiments</th><th>Added</th><th></th></tr></thead><tbody>`;
     let gi=0;
     for(const ms of groups.values()){
       MINE_GROUPS[gi]=ms; const g=ms[0];
@@ -982,6 +986,7 @@ async function renderMine(){
       const exps=dedupCI(ms.flatMap(m=>(m.experiments||'').split(',').map(s=>s.trim()).filter(Boolean)));
       const stat=[...new Set(ms.map(m=>m.status))];
       html+=`<tr>
+        <td class="selcol"><input type="checkbox" class="minesel" data-gi="${gi}"></td>
         <td class="cohort">${esc(g.cohort||'—')}</td>
         <td>${esc(g.genotype_label||'—')}</td>
         <td style="white-space:nowrap"><b>${ms.length}</b> <span style="color:var(--muted);font-size:11px">${esc(sexes)}</span>${pend?` <span style="color:var(--amber);font-size:11px">${pend} pend</span>`:''}</td>
@@ -996,8 +1001,17 @@ async function renderMine(){
     }
     html+='</tbody></table></div>';
     $('mineList').innerHTML=html;
+    $('mineList').querySelectorAll('.minesel').forEach(cb=>cb.onchange=syncMineBulk);
+    $('mineSelAll').onchange=()=>{ const on=$('mineSelAll').checked; $('mineList').querySelectorAll('.minesel').forEach(cb=>cb.checked=on); syncMineBulk(); };
+    $('mineSelClear').onclick=()=>{ $('mineList').querySelectorAll('.minesel').forEach(cb=>cb.checked=false); $('mineSelAll').checked=false; syncMineBulk(); };
+    $('mineDelSel').onclick=()=>{ const gis=[...$('mineList').querySelectorAll('.minesel:checked')].map(cb=>+cb.dataset.gi); __cohort.delMany(gis); };
+    syncMineBulk();
   }catch(e){ $('mineList').innerHTML=`<div class="empty">Error: ${esc(e.message)}</div>`; }
 }
+function syncMineBulk(){ const boxes=[...$('mineList').querySelectorAll('.minesel')], checked=boxes.filter(b=>b.checked);
+  const bar=$('mineBulkBar'); if(bar) bar.style.display=checked.length?'flex':'none';
+  const c=$('mineSelCount'); if(c) c.textContent=checked.length;
+  const sa=$('mineSelAll'); if(sa){ sa.checked=boxes.length>0&&checked.length===boxes.length; sa.indeterminate=checked.length>0&&checked.length<boxes.length; } }
 if($('mineScope')) $('mineScope').onchange=renderMine;
 window.__cohort={
   open:(gi)=>{ const ms=MINE_GROUPS[gi]; if(!ms)return; const g=ms[0];
@@ -1118,6 +1132,15 @@ window.__cohort={
       if(!done.length){ toast('Delete blocked by DB — run migration_002.sql'); return; }
       await audit('mice',null,'DELETE_COHORT',{batch_id:ms[0].batch_id,count:done.length},null);
       toast(`Deleted ${done.length} mice`); renderMine(); loadColony();
+    }catch(e){ toast('Delete failed: '+e.message); } },
+  delMany:async(gis)=>{ const groups=(gis||[]).map(gi=>MINE_GROUPS[gi]).filter(Boolean); if(!groups.length){ toast('Select at least one cohort'); return; }
+    const ids=groups.flatMap(ms=>ms.map(m=>m.id));
+    const names=groups.map(ms=>ms[0].cohort+(ms[0].genotype_label?' '+ms[0].genotype_label:'')).join(', ');
+    if(!confirm(`Delete ${groups.length} cohort(s) — ${ids.length} mice (${names})? This can't be undone.`))return;
+    try{ const done=await inChunks(ids,'DELETE',{Prefer:'return=representation'});
+      if(!done.length){ toast('Delete blocked by DB — run migration_002.sql'); return; }
+      await audit('mice',null,'DELETE_COHORTS',{count:done.length,cohorts:groups.length},null);
+      toast(`Deleted ${done.length} mice in ${groups.length} cohort(s)`); renderMine(); loadColony();
     }catch(e){ toast('Delete failed: '+e.message); } }
 };
 $('cohortOverlay').addEventListener('mousedown',e=>{ if(e.target===$('cohortOverlay')) __cohort.close(); });
