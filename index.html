@@ -1180,9 +1180,9 @@ window.__cohort={
 $('cohortOverlay').addEventListener('mousedown',e=>{ if(e.target===$('cohortOverlay')) __cohort.close(); });
 
 // ---------- import (CSV / Excel) ----------
-const IMP_FIELDS=[['','— ignore —'],['tag_id','Mouse #'],['sex','Sex'],['cohort','Genotype'],['genotype_label','Strain'],['dob','DOB (date)'],['age','Age (number)'],['status','Status'],['owner','Owner (name)'],['facility','Facility'],['room','Room'],['rack','Rack'],['cage','Cage'],['rack_row','Row'],['rack_col','Col'],['experiments','Experiments'],['date_of_death','Date of death'],['notes','Notes']];
+const IMP_FIELDS=[['','— ignore —'],['tag_id','Mouse #'],['sex','Sex'],['cohort','Genotype'],['genotype_label','Strain'],['dob','DOB (date)'],['age','Age (number)'],['status','Status'],['facility','Facility'],['room','Room'],['rack','Rack'],['cage','Cage'],['rack_row','Row'],['rack_col','Col'],['experiments','Experiments'],['date_of_death','Date of death'],['notes','Notes']]; // owner is NOT read from the file — it's a required picker (imp_owner) applied to all rows
 const IMP_REQUIRED=['tag_id','sex','cohort','dob']; // the fields we ask for up front; soft — import still allowed if unmapped
-const IMP_HINTS={tag_id:'ear-tag / cage-card #',sex:'M / F / U',cohort:'WT / Tau / …',dob:'a real date — or map Age instead',age:'used only if DOB is blank',genotype_label:'strain, e.g. C57BL/6, hMAP',owner:'matched to a lab member by name',status:'healthy / diseased / sacrificed / …',cage:'cage number / label'};
+const IMP_HINTS={tag_id:'ear-tag / cage-card #',sex:'M / F / U',cohort:'WT / Tau / …',dob:'a real date — or map Age instead',age:'used only if DOB is blank',genotype_label:'strain, e.g. C57BL/6, hMAP',status:'healthy / diseased / sacrificed / …',cage:'cage number / label'};
 let IMP={headers:[],data:[],fieldMap:{},file:''}; // fieldMap: our field key -> their column index (or -1 = none). Reversed from the old header->field map.
 function parseCSV(t){ const rows=[]; let row=[],cur='',q=false;
   for(let i=0;i<t.length;i++){ const c=t[i];
@@ -1309,10 +1309,10 @@ function impRenderMap(){
     <div class="section-h">Optional <span style="color:var(--muted);font-weight:400;font-size:11px">(include if your file has them)</span></div>
     <div class="grid2">${grp(optKeys)}</div>
     <div class="sub" id="imp_extras" style="color:var(--muted);font-size:12px;margin-top:8px"></div>
-    <div class="section-h">Defaults</div>
+    <div class="section-h">Owner &amp; defaults</div>
     <div class="grid3">
       <div class="field"><label>Default cohort (if blank)</label><select class="in" id="imp_cohort"><option value="">—</option>${COHORTS.map(c=>`<option>${esc(c)}</option>`).join('')}</select></div>
-      <div class="field"><label>Default owner (if unmatched)</label><select class="in" id="imp_owner"><option value="">—</option>${USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('')}</select></div>
+      <div class="field"><label>Owner <span style="color:var(--red)">*</span> <span style="color:var(--muted);font-weight:400;font-size:11px">(applies to all imported mice)</span></label><select class="in" id="imp_owner"><option value="">— pick a person —</option>${USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('')}</select></div>
       <div class="field"><label>Age unit (if using Age)</label><select class="in" id="imp_ageunit"><option value="weeks">weeks</option><option value="months">months</option></select></div>
     </div>
     <div class="modal-actions" style="justify-content:space-between">
@@ -1335,8 +1335,7 @@ function impBuild(){
     if(!dob){ const a=parseFloat(get(r,'age')); if(a>0){ dob=ageToDob(a,aunit); dobEst=true; } }
     const dodStr=get(r,'date_of_death'); let dod=impParseDate(dodStr);
     if(dod===undefined){ if(dodStr)warn.push(`unrecognized death date “${dodStr}”`); dod=null; }
-    const ownerText=get(r,'owner'); const matched=impOwner(ownerText); const owner=matched||downer||null;
-    if(ownerText && !matched) warn.push(`owner “${ownerText}” not matched`+(downer?' → default':''));
+    const owner=downer||null; // owner is chosen from the user list (required select), not read from the file
     const tag=get(r,'tag_id')||null;
     if(tag){ if(seen.has(tag))warn.push('duplicate # in file'); else seen.add(tag); if(existing.has(tag))warn.push('# already in DB'); }
     const status=impStatus(get(r,'status'));
@@ -1348,12 +1347,13 @@ function impBuild(){
       current_location:buildLoc(loc)||null, experiments:get(r,'experiments')||null,
       strain_background:get(r,'strain_background')||null, date_of_death:dod,
       notes:get(r,'notes')||null, last_verified:today, created_by:USER.id, updated_by:USER.id };
-    const empty=!(row.tag_id||row.sex||row.genotype_label||row.dob||row.current_location||row.experiments||row.notes||row.date_of_death||row.strain_background||get(r,'cohort')||ownerText);
+    const empty=!(row.tag_id||row.sex||row.genotype_label||row.dob||row.current_location||row.experiments||row.notes||row.date_of_death||row.strain_background||get(r,'cohort'));
     if(empty) warn.push('blank row (no data mapped)');
     return {row,warn,ri,empty};
   });
 }
 async function impDoPreview(){
+  if(!$('imp_owner')||!$('imp_owner').value){ toast('Choose an Owner for the imported mice (required).'); if($('imp_owner'))$('imp_owner').focus(); return; }
   IMP._batchId=null; IMP._done=0; // a fresh preview starts a fresh import
   try{ IMP._existingTags=await impFetchTags(); }catch(_){ IMP._existingTags=new Set(); }
   const built=impBuild(); IMP._built=built;
