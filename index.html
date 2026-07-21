@@ -1015,15 +1015,15 @@ function nextCageNo(){ return String(Math.max(0,...CAGES.map(c=>parseInt(c.cage,
 function newCage(){ return {cage:nextCageNo(), sex:'M', dob:'', row:'', col:'', nums:'', count:''}; } // dob + rack position (row/col) are per-cage
 function renderCages(){
   $('c_cages').innerHTML=CAGES.map((c,i)=>`<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
-      <span style="width:46px;color:var(--muted);font-size:12px">Cage</span>
-      <input class="in cg" data-i="${i}" data-k="cage" style="width:66px" title="cage number" placeholder="cage #" value="${esc(c.cage)}">
-      <input class="in cg" data-i="${i}" data-k="row" style="width:52px" title="rack row (this cage's position)" placeholder="row" value="${esc(c.row||'')}">
-      <input class="in cg" data-i="${i}" data-k="col" style="width:52px" title="rack column (this cage's position)" placeholder="col" value="${esc(c.col||'')}">
-      <select class="in cg" data-i="${i}" data-k="sex" style="width:66px" title="sex">${['M','F','U'].map(s=>`<option${c.sex===s?' selected':''}>${s}</option>`).join('')}</select>
+      <span style="width:32px;color:var(--muted);font-size:12px">Cage</span>
+      <input class="in cg" data-i="${i}" data-k="cage" style="width:44px" title="cage number" placeholder="#" value="${esc(c.cage)}">
+      <input class="in cg" data-i="${i}" data-k="row" style="width:44px" title="rack row (this cage's position)" placeholder="row" value="${esc(c.row||'')}">
+      <input class="in cg" data-i="${i}" data-k="col" style="width:44px" title="rack column (this cage's position)" placeholder="col" value="${esc(c.col||'')}">
+      <select class="in cg" data-i="${i}" data-k="sex" style="width:48px" title="sex">${['M','F','U'].map(s=>`<option${c.sex===s?' selected':''}>${s}</option>`).join('')}</select>
       <span style="color:var(--muted);font-size:11px">DOB</span>
-      <input class="in cg" data-i="${i}" data-k="dob" type="date" style="width:150px" title="this cage's DOB (litter birth date) — blank uses the default above" value="${esc(c.dob||'')}">
-      <input class="in cg" data-i="${i}" data-k="nums" style="flex:1;min-width:140px" title="mouse numbers in this cage" placeholder="mouse #s — e.g. 4471-4478 (blank = pending)" value="${esc(c.nums)}">
-      <input class="in cg" data-i="${i}" data-k="count" type="number" min="0" style="width:72px" title="# mice in cage" placeholder="# mice" value="${esc(c.count)}">
+      <input class="in cg" data-i="${i}" data-k="dob" type="date" style="width:138px" title="this cage's DOB (litter birth date) — blank uses the default above" value="${esc(c.dob||'')}">
+      <input class="in cg" data-i="${i}" data-k="nums" style="flex:1;min-width:120px" title="mouse numbers in this cage" placeholder="mouse #s — e.g. 4471-4478 (blank = pending)" value="${esc(c.nums)}">
+      <input class="in cg" data-i="${i}" data-k="count" type="number" min="0" style="width:66px" title="# mice in cage" placeholder="# mice" value="${esc(c.count)}">
       <button type="button" class="btn r sm" data-rm="${i}" title="remove cage">✕</button>
     </div>`).join('')+`<button type="button" class="btn sm" id="c_addcage">+ Add cage</button>`;
   const nc=$('c_ncages'); if(nc)nc.value=CAGES.length;
