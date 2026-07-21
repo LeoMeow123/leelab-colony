@@ -57,7 +57,7 @@ in Supabase Auth + RLS later makes it hard enforcement **without schema changes*
 - **Import (CSV/Excel):** we show the fields we need and **auto-match your columns** for you (your extra columns are ignored); **Owner** is a required picker (not read from the file); statuses like active/inactive/collected map automatically. An unreadable file → one-click “email it to Leo”.
 - **Requests / Mice needed / My requests:** file a task (genotype, ear-tag, move, breed) or a **Request for mice**; assign it to one or more people (emailed via the Edge Function, with a link back to the app); the **Mice needed** board is the long-term breeding queue; a two-stage *done → close* lifecycle keeps a Completed archive.
 - **🕯️ In Memoriam:** a memorial grid for dead / sacrificed / collected mice.
-- **😇 Guardian Angels:** upload the lab’s pets (photo resized in-browser); they appear here and on the colony.
+- **😇 Guardian Angels:** upload the lab’s pets (photo resized in-browser); they appear here and on the colony. On every visit a random pet greets you with a species sound, the San-Diego time, and a warm message — react with ❤️🥰🤗😢 (tallied per pet; recorded once a day).
 - **People:** add members, set roles, and set the shared password.
 
 ## What's stored
