@@ -1012,13 +1012,15 @@ window.__mc={
 // ---------- add cohort (bulk, by cage) ----------
 let CAGES=[];
 function nextCageNo(){ return String(Math.max(0,...CAGES.map(c=>parseInt(c.cage,10)||0))+1); } // avoids collisions after removing a middle cage
-function newCage(){ return {cage:nextCageNo(), sex:'M', nums:'', count:''}; }
+function newCage(){ return {cage:nextCageNo(), sex:'M', dob:'', nums:'', count:''}; } // dob is per-cage (each cage ≈ one litter)
 function renderCages(){
   $('c_cages').innerHTML=CAGES.map((c,i)=>`<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
       <span style="width:46px;color:var(--muted);font-size:12px">Cage</span>
       <input class="in cg" data-i="${i}" data-k="cage" style="width:76px" title="cage number" placeholder="cage #" value="${esc(c.cage)}">
       <select class="in cg" data-i="${i}" data-k="sex" style="width:74px" title="sex">${['M','F','U'].map(s=>`<option${c.sex===s?' selected':''}>${s}</option>`).join('')}</select>
-      <input class="in cg" data-i="${i}" data-k="nums" style="flex:1;min-width:150px" title="mouse numbers in this cage" placeholder="mouse #s — e.g. 4471-4478 (blank = pending)" value="${esc(c.nums)}">
+      <span style="color:var(--muted);font-size:11px">DOB</span>
+      <input class="in cg" data-i="${i}" data-k="dob" type="date" style="width:150px" title="this cage's DOB (litter birth date) — blank uses the default above" value="${esc(c.dob||'')}">
+      <input class="in cg" data-i="${i}" data-k="nums" style="flex:1;min-width:140px" title="mouse numbers in this cage" placeholder="mouse #s — e.g. 4471-4478 (blank = pending)" value="${esc(c.nums)}">
       <input class="in cg" data-i="${i}" data-k="count" type="number" min="0" style="width:72px" title="# mice in cage" placeholder="# mice" value="${esc(c.count)}">
       <button type="button" class="btn r sm" data-rm="${i}" title="remove cage">✕</button>
     </div>`).join('')+`<button type="button" class="btn sm" id="c_addcage">+ Add cage</button>`;
@@ -1042,10 +1044,11 @@ function renderCohortForm(mode){
       <div class="field"><label>Owner *</label><select class="in" id="c_owner">${ownerOptions('')}</select></div>
       <div class="field"><label>Strain</label><input class="in" id="c_geno" placeholder="e.g. C57BL/6, hMAP"></div>
     </div>
-    <div class="section-h">Age / DOB *</div>
+    <div class="section-h">${single?'Age / DOB':'Default age / DOB'}</div>
+    ${single?'':'<div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:6px">Each cage is usually one litter, so <b>DOB is set per cage below</b>. This default fills any cage you leave blank (handy when the whole cohort shares a birth date).</div>'}
     <div class="grid3">
       <div class="field"><label>Basis</label><select class="in" id="c_agebasis"><option value="dob">I have DOB</option><option value="age">Estimate from age</option><option value="none">Unknown (add later)</option></select></div>
-      <div class="field" id="c_dobwrap"><label>DOB</label><input class="in" id="c_dob" type="date"></div>
+      <div class="field" id="c_dobwrap"><label>${single?'DOB':'Default DOB'}</label><input class="in" id="c_dob" type="date"></div>
       <div class="field hidden" id="c_agewrap"><label>Rough age (→ DOB flagged estimated)</label><div style="display:flex;gap:6px"><input class="in" id="c_age" type="number" step="0.1" placeholder="e.g. 8"><select class="in" id="c_ageunit" style="width:96px"><option value="weeks">weeks</option><option value="months">months</option></select></div></div>
     </div>
     <div class="section-h">Location</div>
@@ -1066,7 +1069,7 @@ function renderCohortForm(mode){
     </div>`:`
     <div class="sub" style="color:var(--muted);font-size:12px">Facility → Room → Rack → Row/Col is the rack position (shared by the cohort). The <b>cage number</b> is set per-cage below.</div>
     <div class="section-h">Cages</div>
-    <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:8px">One row per cage (usually single-sex). Enter the cage's mouse numbers (a list or a range like 4471-4478) and the count fills in — or leave numbers blank and just type how many mice are in the cage. Cage # defaults to 1, 2, 3… — change it if your cages are labeled otherwise. All of this is editable later.</div>
+    <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:8px">One row per cage (usually single-sex, one litter → one <b>DOB</b>). Set the cage's sex and DOB, then its mouse numbers (a list or range like 4471-4478) and the count fills in — or leave numbers blank and just type how many mice are in the cage. Leave a cage's DOB blank to use the default above. All of this is editable later.</div>
     <div class="field" style="max-width:170px"><label># of cages</label><input class="in" id="c_ncages" type="number" min="1" value="1"></div>
     <div id="c_cages" style="margin-top:8px"></div>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:10px"><input type="checkbox" id="c_eartag" checked> If any numbers are pending, file an ear-tag request for this cohort</label>`}
@@ -1095,16 +1098,17 @@ $('addSave').onclick=async()=>{
   const cohort=g('c_cohort'), owner=g('c_owner');
   if(!cohort){ $('addErr').textContent='Genotype is required.'; return; }
   if(!owner){ $('addErr').textContent='Owner is required.'; return; }
-  let dob=null, dobEst=false; const basis=$('c_agebasis').value;
-  if(basis==='dob'){ dob=g('c_dob'); if(!dob){ $('addErr').textContent='Enter a DOB, or switch to “Estimate from age” / “Unknown (add later)”.'; return; } }
-  else if(basis==='age'){ const a=parseFloat($('c_age').value); if(!(a>0)){ $('addErr').textContent='Enter a rough age, or choose “Unknown (add later)”.'; return; } dob=ageToDob(a,$('c_ageunit').value); dobEst=true; }
+  // Default DOB — fills any cage left blank. Each cage can set its own DOB (one litter = one DOB).
+  let defDob=null, defDobEst=false; const basis=$('c_agebasis').value;
+  if(basis==='dob'){ defDob=g('c_dob'); }
+  else if(basis==='age'){ const a=parseFloat($('c_age').value); if(a>0){ defDob=ageToDob(a,$('c_ageunit').value); defDobEst=true; } }
   const baseLoc={facility:g('c_fac'),room:g('c_room'),rack:g('c_rack'),rack_row:g('c_row'),rack_col:g('c_col')};
   const baseLocStr=buildLoc(baseLoc)||''; // cohort-level location string (was referenced as an undefined `current_location`)
   const batch_id=crypto.randomUUID(), today=todayStr();
   const geno=g('c_geno'), notes=g('c_notes'), exp=g('c_exp');
-  const common={cohort, genotype_label:geno, dob, dob_estimated:dobEst, responsible_person:owner, status:'healthy',
+  const common={cohort, genotype_label:geno, responsible_person:owner, status:'healthy',
     experiments:exp, batch_id, notes, created_by:USER.id, updated_by:USER.id, last_verified:today,
-    rack_row:baseLoc.rack_row, rack_col:baseLoc.rack_col, n_cages:CAGES.length};
+    rack_row:baseLoc.rack_row, rack_col:baseLoc.rack_col, n_cages:CAGES.length}; // dob is set per cage below
   const rows=[], allNums=[];
   for(let i=0;i<CAGES.length;i++){ const c=CAGES[i], cageNo=(c.cage||'').trim()||String(i+1);
     let nums=[]; if((c.nums||'').trim()){ nums=parseNums(c.nums);
@@ -1114,8 +1118,9 @@ $('addSave').onclick=async()=>{
     if(!Number.isInteger(count)||count<0){ $('addErr').textContent=`Cage ${cageNo}: # mice must be a whole number ≥ 0.`; return; }
     if(nums.length>count){ $('addErr').textContent=`Cage ${cageNo}: ${nums.length} numbers for only ${count} mice.`; return; }
     const cl=buildLoc(Object.assign({cage:cageNo}, baseLoc))||null;
+    const cd=(c.dob||'').trim(), cageDob=cd||defDob, cageDobEst=cd?false:defDobEst; // this cage's DOB, else the default
     for(let j=0;j<count;j++){ const tag=nums[j]||null; if(tag)allNums.push(tag);
-      rows.push(Object.assign({tag_id:tag, sex:c.sex||'U', cage:cageNo, current_location:cl,
+      rows.push(Object.assign({tag_id:tag, sex:c.sex||'U', cage:cageNo, dob:cageDob, dob_estimated:cageDobEst, current_location:cl,
         facility:baseLoc.facility, room:baseLoc.room, rack:baseLoc.rack}, common)); }
   }
   if(!rows.length){ $('addErr').textContent='Add at least one mouse — enter numbers or a # of mice in a cage.'; return; }
@@ -1123,7 +1128,7 @@ $('addSave').onclick=async()=>{
   const total=rows.length, pending=rows.filter(r=>!r.tag_id).length;
   try{
     await api('mice',{method:'POST',headers:{Prefer:'return=minimal'},body:rows});
-    await audit('mice',null,'INSERT_COHORT',null,{cohort,owner:userName(owner),count:total,cages:CAGES.length,batch_id,dob_estimated:dobEst});
+    await audit('mice',null,'INSERT_COHORT',null,{cohort,owner:userName(owner),count:total,cages:CAGES.length,batch_id,dob_estimated:rows.some(r=>r.dob_estimated)});
     ensureCohort(cohort); // a typed-in genotype becomes a reusable option everywhere
     let extra='';
     if(pending>0 && $('c_eartag') && $('c_eartag').checked){
