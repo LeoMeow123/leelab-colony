@@ -627,7 +627,7 @@ function startApp(greetMode){
   loadColony();
   renderGuardianStrip();
   if(!USER.email) promptEmail(); // first time only — once saved it never asks again
-  else if(greetMode && !localStorage.getItem('mc:realuser')) greet(greetMode==='login'); // warm hello (not while impersonating; skip if we're asking for email)
+  else if(greetMode && !localStorage.getItem('mc:realuser')) greet(); // warm hello every time (not while impersonating; skip if we're asking for email)
 }
 function promptEmail(){
   $('emailModal').innerHTML=`<h2 style="margin:0 0 4px">Your email</h2>
@@ -2087,11 +2087,11 @@ function pacificNow(){ const d=new Date();
   return `${date} · ${time} · San Diego time`; }
 function pacificDayStr(){ try{ return new Date().toLocaleDateString('en-CA',{timeZone:'America/Los_Angeles'}); }catch(_){ return ''; } }
 let GREET_ANGEL=null;
-async function greet(force){
-  if(!force){ try{ if(localStorage.getItem('mc:greetday')===pacificDayStr()) return; }catch(_){} } // once per day on plain reloads
+function reactedToday(){ try{ return localStorage.getItem('mc:reactday')===pacificDayStr(); }catch(_){ return false; } }
+async function greet(){ // shown every time the app opens; a fresh random pet + message each call
   const gs=await loadGuardians(); if(!gs||!gs.length) return;          // nothing to draw yet
-  const g=gpick(gs); GREET_ANGEL=g; try{ localStorage.setItem('mc:greetday',pacificDayStr()); }catch(_){}
-  const sound=petSound(g.species), msg=gpick(WARM_MSGS);
+  const g=gpick(gs); GREET_ANGEL=g;
+  const sound=petSound(g.species), msg=gpick(WARM_MSGS), done=reactedToday();
   $('greetModal').innerHTML=`
     <button class="gclose" onclick="__greet.close()" title="close">✕</button>
     <div class="greetwrap">
@@ -2101,15 +2101,19 @@ async function greet(force){
     <div class="greetname">${esc(g.name)}${g.species?` <span style="color:var(--muted);font-weight:400;font-size:12px">the ${esc(g.species)}</span>`:''} says hi to ${esc((USER&&USER.full_name||'').split(' ')[0]||'you')} 💛</div>
     <div class="greetdate">${esc(pacificNow())}</div>
     <div class="greetreacts">${REACTIONS.map(r=>`<button class="rbtn" data-react="${r.k}" title="${r.l}">${r.e}<span>${r.l}</span></button>`).join('')}</div>
-    <div id="greetThanks" style="color:var(--muted);font-size:12px;min-height:18px;margin-top:10px">Give ${esc(g.name)} a little reaction 👇</div>`;
+    <div id="greetThanks" style="color:var(--muted);font-size:12px;min-height:18px;margin-top:10px">${done?'You’ve already sent a reaction today 💛 — just enjoy the message.':'Give '+esc(g.name)+' a little reaction 👇'}</div>
+    <div style="margin-top:8px"><a href="#" onclick="greet();return false" style="font-size:12px;color:var(--muted)">🔄 see another</a></div>`;
   $('greetModal').querySelectorAll('[data-react]').forEach(b=>b.onclick=()=>__greet.react(b.dataset.react));
   $('greetOverlay').classList.add('open');
 }
+window.greet=greet;
 window.__greet={
   close:()=>$('greetOverlay').classList.remove('open'),
   react:async(k)=>{
     const r=REACTIONS.find(x=>x.k===k)||{}; const t=$('greetThanks');
+    if(reactedToday()){ if(t) t.innerHTML='You’ve already sent a reaction today 💛 — come back tomorrow!'; return; } // reaction recorded once a day; the message still shows every time
     try{ await api('angel_reactions',{method:'POST',headers:{Prefer:'return=minimal'},body:[{angel_id:GREET_ANGEL.id,user_id:USER.id,reaction:k}]});
+      try{ localStorage.setItem('mc:reactday',pacificDayStr()); }catch(_){}
       if(t) t.innerHTML=`${r.e} sent to <b>${esc(GREET_ANGEL.name)}</b> — thank you!`;
       const at=document.querySelector('.tab.active'); if(at&&at.dataset.tab==='guardians') renderGuardians();
       setTimeout(()=>$('greetOverlay').classList.remove('open'),1000);
