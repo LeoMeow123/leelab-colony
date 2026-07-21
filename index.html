@@ -1012,12 +1012,14 @@ window.__mc={
 // ---------- add cohort (bulk, by cage) ----------
 let CAGES=[];
 function nextCageNo(){ return String(Math.max(0,...CAGES.map(c=>parseInt(c.cage,10)||0))+1); } // avoids collisions after removing a middle cage
-function newCage(){ return {cage:nextCageNo(), sex:'M', dob:'', nums:'', count:''}; } // dob is per-cage (each cage ≈ one litter)
+function newCage(){ return {cage:nextCageNo(), sex:'M', dob:'', row:'', col:'', nums:'', count:''}; } // dob + rack position (row/col) are per-cage
 function renderCages(){
   $('c_cages').innerHTML=CAGES.map((c,i)=>`<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
       <span style="width:46px;color:var(--muted);font-size:12px">Cage</span>
-      <input class="in cg" data-i="${i}" data-k="cage" style="width:76px" title="cage number" placeholder="cage #" value="${esc(c.cage)}">
-      <select class="in cg" data-i="${i}" data-k="sex" style="width:74px" title="sex">${['M','F','U'].map(s=>`<option${c.sex===s?' selected':''}>${s}</option>`).join('')}</select>
+      <input class="in cg" data-i="${i}" data-k="cage" style="width:66px" title="cage number" placeholder="cage #" value="${esc(c.cage)}">
+      <input class="in cg" data-i="${i}" data-k="row" style="width:52px" title="rack row (this cage's position)" placeholder="row" value="${esc(c.row||'')}">
+      <input class="in cg" data-i="${i}" data-k="col" style="width:52px" title="rack column (this cage's position)" placeholder="col" value="${esc(c.col||'')}">
+      <select class="in cg" data-i="${i}" data-k="sex" style="width:66px" title="sex">${['M','F','U'].map(s=>`<option${c.sex===s?' selected':''}>${s}</option>`).join('')}</select>
       <span style="color:var(--muted);font-size:11px">DOB</span>
       <input class="in cg" data-i="${i}" data-k="dob" type="date" style="width:150px" title="this cage's DOB (litter birth date) — blank uses the default above" value="${esc(c.dob||'')}">
       <input class="in cg" data-i="${i}" data-k="nums" style="flex:1;min-width:140px" title="mouse numbers in this cage" placeholder="mouse #s — e.g. 4471-4478 (blank = pending)" value="${esc(c.nums)}">
@@ -1056,8 +1058,8 @@ function renderCohortForm(mode){
       <div class="field"><label>Facility *</label><select class="in" id="c_fac">${facilityOptions('CRAF')}</select></div>
       <div class="field"><label>Room</label><input class="in" id="c_room"></div>
       <div class="field"><label>Rack</label><input class="in" id="c_rack"></div>
-      <div class="field"><label>Row</label><input class="in" id="c_row" placeholder="e.g. 5"></div>
-      <div class="field"><label>Col</label><input class="in" id="c_col" placeholder="e.g. H-L"></div>
+      <div class="field"><label>${single?'Row':'Default row'}</label><input class="in" id="c_row" placeholder="e.g. 9"></div>
+      <div class="field"><label>${single?'Col':'Default col'}</label><input class="in" id="c_col" placeholder="e.g. H"></div>
     </div>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:6px"><input type="checkbox" id="c_locundecided"> Row / Col not decided yet — leave blank, set later</label>
     ${single?`
@@ -1067,7 +1069,7 @@ function renderCohortForm(mode){
       <div class="field"><label>Sex</label><select class="in" id="c_single_sex"><option>M</option><option>F</option><option value="U">Unknown</option></select></div>
       <div class="field"><label>Cage #</label><input class="in" id="c_single_cage" value="1"></div>
     </div>`:`
-    <div class="sub" style="color:var(--muted);font-size:12px">Facility → Room → Rack → Row/Col is the rack position (shared by the cohort). The <b>cage number</b> is set per-cage below.</div>
+    <div class="sub" style="color:var(--muted);font-size:12px">Facility · Room · Rack are shared by the cohort. Each cage's <b>number, row/col position, sex and DOB</b> are set per-cage below — the row/col above is just the default for cages left blank.</div>
     <div class="section-h">Cages</div>
     <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:8px">One row per cage (usually single-sex, one litter → one <b>DOB</b>). Set the cage's sex and DOB, then its mouse numbers (a list or range like 4471-4478) and the count fills in — or leave numbers blank and just type how many mice are in the cage. Leave a cage's DOB blank to use the default above. All of this is editable later.</div>
     <div class="field" style="max-width:170px"><label># of cages</label><input class="in" id="c_ncages" type="number" min="1" value="1"></div>
@@ -1102,13 +1104,14 @@ $('addSave').onclick=async()=>{
   let defDob=null, defDobEst=false; const basis=$('c_agebasis').value;
   if(basis==='dob'){ defDob=g('c_dob'); }
   else if(basis==='age'){ const a=parseFloat($('c_age').value); if(a>0){ defDob=ageToDob(a,$('c_ageunit').value); defDobEst=true; } }
-  const baseLoc={facility:g('c_fac'),room:g('c_room'),rack:g('c_rack'),rack_row:g('c_row'),rack_col:g('c_col')};
-  const baseLocStr=buildLoc(baseLoc)||''; // cohort-level location string (was referenced as an undefined `current_location`)
+  const baseLoc={facility:g('c_fac'),room:g('c_room'),rack:g('c_rack')}; // shared by the cohort
+  const defRow=g('c_row'), defCol=g('c_col'); // default rack position — each cage's own row/col below overrides it
+  const baseLocStr=buildLoc(Object.assign({rack_row:defRow,rack_col:defCol},baseLoc))||''; // for the ear-tag request text
   const batch_id=crypto.randomUUID(), today=todayStr();
   const geno=g('c_geno'), notes=g('c_notes'), exp=g('c_exp');
   const common={cohort, genotype_label:geno, responsible_person:owner, status:'healthy',
     experiments:exp, batch_id, notes, created_by:USER.id, updated_by:USER.id, last_verified:today,
-    rack_row:baseLoc.rack_row, rack_col:baseLoc.rack_col, n_cages:CAGES.length}; // dob is set per cage below
+    n_cages:CAGES.length}; // dob + rack_row/rack_col are set per cage below
   const rows=[], allNums=[];
   for(let i=0;i<CAGES.length;i++){ const c=CAGES[i], cageNo=(c.cage||'').trim()||String(i+1);
     let nums=[]; if((c.nums||'').trim()){ nums=parseNums(c.nums);
@@ -1117,10 +1120,12 @@ $('addSave').onclick=async()=>{
     const count=(c.count||'').trim()!==''? Number(c.count) : nums.length;
     if(!Number.isInteger(count)||count<0){ $('addErr').textContent=`Cage ${cageNo}: # mice must be a whole number ≥ 0.`; return; }
     if(nums.length>count){ $('addErr').textContent=`Cage ${cageNo}: ${nums.length} numbers for only ${count} mice.`; return; }
-    const cl=buildLoc(Object.assign({cage:cageNo}, baseLoc))||null;
+    const cageRow=(c.row||'').trim()||defRow, cageCol=(c.col||'').trim()||defCol; // this cage's rack position, else the default
+    const cl=buildLoc(Object.assign({cage:cageNo,rack_row:cageRow,rack_col:cageCol}, baseLoc))||null;
     const cd=(c.dob||'').trim(), cageDob=cd||defDob, cageDobEst=cd?false:defDobEst; // this cage's DOB, else the default
     for(let j=0;j<count;j++){ const tag=nums[j]||null; if(tag)allNums.push(tag);
-      rows.push(Object.assign({tag_id:tag, sex:c.sex||'U', cage:cageNo, dob:cageDob, dob_estimated:cageDobEst, current_location:cl,
+      rows.push(Object.assign({tag_id:tag, sex:c.sex||'U', cage:cageNo, dob:cageDob, dob_estimated:cageDobEst,
+        rack_row:cageRow, rack_col:cageCol, current_location:cl,
         facility:baseLoc.facility, room:baseLoc.room, rack:baseLoc.rack}, common)); }
   }
   if(!rows.length){ $('addErr').textContent='Add at least one mouse — enter numbers or a # of mice in a cage.'; return; }
