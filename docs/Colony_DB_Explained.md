@@ -24,7 +24,10 @@ browser can use it safely. The parts we use:
 ### 1. PostgreSQL (the database)
 All data lives here, in tables:
 - `mice` — the main table, one row per mouse (tag, sex, genotype, strain, DOB,
-  owner, location/cage, status, experiments…).
+  owner, location/cage, status, experiments…). Because it's one row per mouse, a
+  **breeding cage** is simply several rows sharing one cage number with mixed sex
+  and DOB (flagged "breeding" in notes). Import can take one row per mouse *or* per
+  cage (with an amount that expands into mice), and the preview is fully editable.
 - `mouse_v` — a *view* over `mice` that adds computed age + a "stale" flag.
 - `app_users` — the people (name, **role**, email, and each person's **own
   password hash** + a "must set a password" flag).

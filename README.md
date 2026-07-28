@@ -9,12 +9,13 @@ Kuo-Fen Lee lab mouse colony. Backed by Supabase (Postgres + auto REST API + RLS
 hosted on GitHub Pages, with automated daily backups in a separate private repo.
 
 **Features:** browse / search / filter / sort the colony (individual **or** grouped),
-per-mouse timeline, add mice one at a time or a whole cohort, **CSV/Excel import**
-with automatic column-matching, per-cohort **batch edit**, **owner-scoped**
-edit/delete, a **request/approval queue** with a dedicated **“Mice needed”
-breeding board** and automatic email, an **🕯️ In Memoriam** memorial for departed
-mice, a **😇 Guardian Angels** wall of the lab’s pets, CSV export, people admin,
-and a full audit log.
+per-mouse timeline, add mice one at a time, a whole cohort (per-cage sex / DOB /
+position), or **breeding cages**; **CSV/Excel import** with automatic
+column-matching, cage-format expansion, and a **fully editable preview**; per-cohort
+**batch edit**, **owner-scoped** edit/delete; a **request/approval queue** with a
+dedicated **“Mice needed” breeding board** and automatic email; an **🕯️ In Memoriam**
+memorial for departed mice; a **😇 Guardian Angels** wall of the lab’s pets; CSV
+export, people admin, and a full audit log.
 
 ## Login model
 Everyone picks their **name** and types **their own password**. New people sign in
@@ -53,8 +54,8 @@ in Supabase Auth + RLS later makes it hard enforcement **without schema changes*
 ## Using it
 - **Colony** (home): search (tag / strain), sex, genotype, facility, status, age window, owner, location; sort by any column; **individual or grouped** view; click a row for the detail + timeline; **CSV** exports the filtered set. Status defaults to *any* so nothing a member adds is hidden. Guardian-angel pets watch over the top.
 - **My colony:** just the cohorts you added / own. **Separate by** cohort / genotype / age / status, see an **age range** per group, **expand** any group into its individual mice, **batch-modify**, or **multi-select delete** — all scoped to your own mice.
-- **Add cohort:** a whole cage/cohort at once, or toggle to **Single mouse**. Genotype is a **typeable combobox** (type a new one → it sticks); **Owner required**; Age = real **DOB** / rough age (→ estimated `~`) / *unknown*; structured location (Facility → Room → Rack → Row/Col, with an *“undecided”* option). Pending mouse numbers auto-file an ear-tag request.
-- **Import (CSV/Excel):** we show the fields we need and **auto-match your columns** for you (your extra columns are ignored); **Owner** is a required picker (not read from the file); statuses like active/inactive/collected map automatically. An unreadable file → one-click “email it to Leo”.
+- **Add cohort:** a whole cage/cohort at once, or toggle to **Single mouse**. Genotype is a **typeable combobox** (type a new one → it sticks); **Owner required**. Facility/Room/Rack are shared; each **cage** carries its own **sex, DOB, row/col position and numbers** (a cohort can span litters), with a cohort-level *default* DOB/position filling blanks. **“＋ Add breeding cage”** makes a mixed cage of several **(sex + DOB + numbers)** sub-groups (dam/sire/pups), tagged *breeding* in notes. Age = real **DOB** / rough age (→ estimated `~`) / *unknown*; Row/Col has an *“undecided”* option; pending numbers auto-file an ear-tag request.
+- **Import (CSV/Excel):** we show the fields we need and **auto-match your columns** (extra columns ignored); **Owner** is a required picker (not read from the file). Handles **one row per mouse OR per cage** — map an **Amount (# mice)** column and each cage expands into its mice. **Breeding cages** are detected from your convention (*"breeding"* in notes, or a `+` in Sex/Amount/DOB like `M+F` / `1+3` / `dob1+dob2`) and split into the right mice. A combined **`H7` position** cell auto-splits into col H / row 7; statuses like active/inactive/collected map automatically. The **preview is fully editable** — fix any cell, and **duplicate / add / delete rows** before committing. Unreadable file → one-click “email it to Leo”.
 - **Requests / Mice needed / My requests:** file a task (genotype, ear-tag, move, breed) or a **Request for mice**; assign it to one or more people (emailed via the Edge Function, with a link back to the app); the **Mice needed** board is the long-term breeding queue; a two-stage *done → close* lifecycle keeps a Completed archive.
 - **🕯️ In Memoriam:** a memorial grid for dead / sacrificed / collected mice.
 - **😇 Guardian Angels:** upload the lab’s pets (photo resized in-browser); they appear here and on the colony. On every visit a random pet greets you with a species sound, the San-Diego time, and a warm message — react with ❤️🥰🤗😢 (tallied per pet; recorded once a day).
