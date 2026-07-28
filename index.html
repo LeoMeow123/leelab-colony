@@ -249,7 +249,6 @@
   <!-- COLONY -->
   <div class="wrap" id="tab-colony">
     <div id="guardianStrip"></div>
-    <div id="breedingBox"></div>
     <div class="filters">
       <div class="f grow"><label>Search (mouse # / strain)</label><input class="in" id="fSearch" placeholder="e.g. 4471 or hMAP"></div>
       <div class="f"><label>Sex</label><select class="in" id="fSex"><option value="">any</option><option>M</option><option>F</option><option>U</option></select></div>
@@ -287,6 +286,7 @@
       </table>
       <div class="pager"><span id="pageInfo"></span><button class="btn sm" id="prev">‹ Prev</button><button class="btn sm" id="next">Next ›</button></div>
     </div>
+    <div id="breedingBox" style="margin-top:16px"></div>
   </div>
 
   <!-- MY COLONY -->
@@ -732,14 +732,18 @@ async function loadGroups(){
     $('mouseCountHdr').textContent = total?('· '+total.toLocaleString()+' mice'):'';
   }catch(e){ renderGroupHead(); $('tbody').innerHTML=`<tr><td colspan="9" class="empty">Error: ${esc(e.message)}</td></tr>`; }
 }
-// ---- breeding cages: grouped by cage, purple, not requestable, with a Wean action ----
-function breedingCagesHtml(rows, canWean){
+// ---- breeding cages: grouped by cage, purple, not requestable. Wean + edit only where allowed. ----
+let MINE_BCAGES={};
+function breedingCagesHtml(rows, canWean, canEdit){
   const groups=new Map();
   rows.forEach(m=>{ const k=[m.facility,m.room,m.rack,m.rack_row,m.rack_col,m.cage].join('¦'); if(!groups.has(k))groups.set(k,[]); groups.get(k).push(m); });
+  if(canEdit) MINE_BCAGES={};
+  let bi=0;
   const cageHtml=ms=>{ const g=ms[0];
     const comp=['M','F','U'].map(s=>{const c=ms.filter(m=>m.sex===s).length; return c?c+s:null;}).filter(Boolean).join(' + ')||'—';
     const dobs=[...new Set(ms.map(m=>m.dob).filter(Boolean))], dobStr=dobs.length?dobs.join(' + '):'—';
     const ids=ms.map(m=>m.id);
+    let editBtn=''; if(canEdit){ MINE_BCAGES[bi]=ms; editBtn=`<button class="btn p sm" data-bedit="${bi}" style="margin-left:auto" title="add newborn pups or fix this cage">✎ Open for edits</button>`; bi++; }
     return `<div style="border:1px solid var(--purple);border-radius:10px;padding:8px 12px;background:rgba(124,58,237,.06);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <span style="font-weight:700;color:var(--purple);white-space:nowrap">🔬 Cage ${esc(g.cage||'—')}</span>
       <span class="cohort">${esc(g.cohort||'—')}</span>
@@ -747,9 +751,11 @@ function breedingCagesHtml(rows, canWean){
       <span class="sub" style="color:var(--muted);font-size:12px">DOB ${esc(dobStr)}</span>
       <span class="sub" style="color:var(--muted);font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis">${esc(g.current_location||'')}</span>
       <span class="sub" style="color:var(--muted);font-size:12px">${esc(g.owner_name||'')}</span>
-      ${canWean?`<button class="btn sm" data-wean="${esc(ids.join(','))}" style="margin-left:auto;border-color:var(--purple);color:var(--purple)" title="release these mice into the colony (breeding off → requestable)">Wean →</button>`:''}
+      ${editBtn}
+      ${canWean?`<button class="btn sm" data-wean="${esc(ids.join(','))}" style="${canEdit?'':'margin-left:auto;'}border-color:var(--purple);color:var(--purple)" title="release these mice into the colony (breeding off → requestable)">Wean →</button>`:''}
     </div>`; };
-  return `<div class="section-h" style="color:var(--purple)">🔬 Breeding cages · ${groups.size} <span class="sub" style="color:var(--muted);font-weight:400;font-size:12px">— kept apart, not requestable · Wean releases them into the colony</span></div>
+  const note='kept apart, not requestable'+(canEdit?' · <b>Open for edits</b> to add newborn pups':'')+(canWean?' · Wean releases them into the colony':'');
+  return `<div class="section-h" style="color:var(--purple)">🔬 Breeding cages · ${groups.size} <span class="sub" style="color:var(--muted);font-weight:400;font-size:12px">— ${note}</span></div>
     <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">${[...groups.values()].map(cageHtml).join('')}</div>`;
 }
 function wireWean(el){ el.querySelectorAll('[data-wean]').forEach(b=>b.onclick=()=>weanCage(b.dataset.wean.split(','))); }
@@ -765,7 +771,8 @@ async function renderBreedingBox(){
   if(!HAS_BREEDING){ el.innerHTML=''; return; }
   let f=''; if($('fOwner')&&$('fOwner').value) f+='&responsible_person=eq.'+$('fOwner').value; if($('fFac')&&$('fFac').value) f+='&facility=eq.'+encodeURIComponent($('fFac').value);
   let rows=[]; try{ rows=(await api('mouse_v?breeding=is.true'+f+'&select=id,tag_id,sex,cohort,genotype_label,dob,age_months,cage,current_location,owner_name,facility,room,rack,rack_row,rack_col&order=cage')).data||[]; }catch(_){ el.innerHTML=''; return; }
-  el.innerHTML=rows.length?breedingCagesHtml(rows,true):'';
+  // Colony overview is read-only for breeding: members wean/edit in "My colony"; managers can still wean here.
+  el.innerHTML=rows.length?breedingCagesHtml(rows,isMgr(),false):'';
   wireWean(el);
 }
 function renderGroupHead(){
@@ -963,7 +970,7 @@ function renderDetail(m,em,pr){
     <div class="timeline">${tl.length?tl.map(i=>`<div class="tl-item"><span class="dt">${esc(i.date||'—')}</span><span class="tag">${esc(i.tag)}</span><span>${esc(i.txt)}</span></div>`).join(''):'<div style="color:var(--muted);font-size:12px">No experiments or procedures logged.</div>'}</div>
     <div class="modal-actions">
       ${canDelMouse(m)?`<button class="btn r sm" onclick="__mc.del()">Delete mouse</button>${m.batch_id?`<button class="btn r sm" onclick="__mc.delCohort()">Delete cohort…</button>`:''}`:''}
-      ${m.breeding?`<button class="btn sm" onclick="weanCage(['${esc(m.id)}'])" style="border-color:var(--purple);color:var(--purple)" title="release this mouse from breeding into the colony">Wean →</button>`:''}
+      ${m.breeding&&canDelMouse(m)?`<button class="btn sm" onclick="weanCage(['${esc(m.id)}'])" style="border-color:var(--purple);color:var(--purple)" title="release this mouse from breeding into the colony">Wean →</button>`:''}
       <button class="btn g sm" onclick="__mc.verify()" title="Records that you physically checked this mouse today. If a mouse isn't verified for 30+ days it gets a “stale” badge — a reminder to re-check it.">✓ Mark verified today</button>
       <button class="btn p" onclick="__mc.edit()">Edit</button>
     </div>`;
@@ -1252,7 +1259,7 @@ async function renderMine(){
     const groups=new Map();
     regRows.forEach(m=>{ const k=mineGroupKey(m); if(!groups.has(k))groups.set(k,[]); groups.get(k).push(m); }); // breeding cages shown apart, not in the sex/age groups
     MINE_GROUPS={};
-    let html=(breedingRows.length?breedingCagesHtml(breedingRows,true):'')+`<div id="mineBulkBar" style="display:none;align-items:center;gap:10px;background:var(--bg2);border:1px solid var(--red);border-radius:10px;padding:8px 12px;margin-bottom:10px">
+    let html=(breedingRows.length?breedingCagesHtml(breedingRows,true,true):'')+`<div id="mineBulkBar" style="display:none;align-items:center;gap:10px;background:var(--bg2);border:1px solid var(--red);border-radius:10px;padding:8px 12px;margin-bottom:10px">
         <b id="mineSelCount">0</b><span class="sub" style="color:var(--muted);font-size:12px">group(s) selected</span>
         <button class="btn r sm" id="mineDelSel">Delete selected</button>
         <button class="btn sm" id="mineSelClear">Clear</button></div>
@@ -1292,6 +1299,7 @@ async function renderMine(){
     html+='</tbody></table></div>';
     $('mineList').innerHTML=html;
     wireWean($('mineList'));
+    $('mineList').querySelectorAll('[data-bedit]').forEach(b=>b.onclick=()=>__bcage.open(+b.dataset.bedit));
     $('mineList').querySelectorAll('tr.grp').forEach(tr=>tr.onclick=e=>{ if(e.target.closest('button')||e.target.closest('input'))return; // clicks on Modify/Delete/checkbox don't toggle
       tr.classList.toggle('open'); $('mineList').querySelectorAll('.mine-g-'+tr.dataset.gi).forEach(r=>r.classList.toggle('hidden')); });
     $('mineList').querySelectorAll('tr.member').forEach(tr=>tr.onclick=e=>{ if(e.target.closest('button'))return; openDetail(tr.dataset.id); });
@@ -1438,6 +1446,87 @@ window.__cohort={
       await audit('mice',null,'DELETE_COHORTS',{count:done.length,cohorts:groups.length},null);
       toast(`Deleted ${done.length} mice in ${groups.length} cohort(s)`); renderMine(); loadColony();
     }catch(e){ toast('Delete failed: '+e.message); } }
+};
+// ---- breeding-cage editor (My colony only): add newborn pups, fix sex/#/DOB, remove, or wean ----
+window.__bcage={
+  open:(bi)=>{ const ms=MINE_BCAGES[bi]; if(!ms)return; const g=ms[0];
+    const comp=['M','F','U'].map(s=>{const c=ms.filter(m=>m.sex===s).length;return c?c+s:null;}).filter(Boolean).join(' + ')||'—';
+    $('cohortModal').innerHTML=`
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div><h2 style="margin:0;color:var(--purple)">🔬 Edit breeding cage · Cage ${esc(g.cage||'—')}</h2>
+        <div class="mid">${ms.length} mice · ${esc(comp)} · ${esc(g.cohort||'')} ${esc(g.genotype_label||'')}</div></div>
+        <button class="btn sm" onclick="__bcage.close()">✕</button></div>
+      <div class="sub" style="color:var(--muted);font-size:12px;margin:6px 0 12px">Breeding cages hold mixed sexes and litters. <b>Add newborn pups</b> as they're born, fix a sex / mouse # / DOB, or remove a mouse. They stay <b>not requestable</b> — use <b>Wean whole cage</b> once the litter is weaned.</div>
+      <div class="grid2">
+        <div class="field"><label>Genotype (all)</label><select class="in" id="bc_cohort"><option value="">(unchanged)</option>${COHORTS.map(c=>`<option${g.cohort===c?' selected':''}>${esc(c)}</option>`).join('')}</select></div>
+        <div class="field"><label>Owner (all)</label><select class="in" id="bc_owner"><option value="">(unchanged)</option>${USERS.map(u=>`<option value="${u.id}"${g.responsible_person===u.id?' selected':''}>${esc(u.full_name)}</option>`).join('')}</select></div>
+      </div>
+      <div class="section-h">Mice in this cage (${ms.length}) — edit sex / # / DOB, or ✕ to remove</div>
+      <div style="display:flex;gap:8px;font-size:11px;color:var(--muted);margin:0 0 2px"><span style="width:64px">Sex</span><span style="width:130px">Mouse #</span><span style="width:150px">DOB</span><span>Remove</span></div>
+      <div style="max-height:240px;overflow:auto">${ms.map(m=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:5px">
+        <select class="in bc_sex" data-id="${esc(m.id)}" data-orig="${esc(m.sex||'')}" style="width:64px">${['M','F','U'].map(s=>`<option${m.sex===s?' selected':''}>${s}</option>`).join('')}</select>
+        <input class="in bc_num" data-id="${esc(m.id)}" data-orig="${esc(m.tag_id||'')}" value="${esc(m.tag_id||'')}" placeholder="(pending)" style="width:130px">
+        <input class="in bc_dob" data-id="${esc(m.id)}" data-orig="${esc(m.dob||'')}" value="${esc(m.dob||'')}" type="date" style="width:150px">
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--red)"><input type="checkbox" class="bc_del" data-id="${esc(m.id)}"> ✕</label></div>`).join('')}</div>
+      <div class="section-h">Add newborn pups</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <input class="in" id="bc_add_n" type="number" min="0" placeholder="# pups" style="width:80px">
+        <select class="in" id="bc_add_sex" style="width:64px">${['U','M','F'].map(s=>`<option>${s}</option>`).join('')}</select>
+        <input class="in" id="bc_add_dob" type="date" title="pups' date of birth" style="width:150px">
+        <input class="in" id="bc_add_nums" placeholder="mouse #s (optional, e.g. 4479-4480)" style="flex:1;min-width:140px">
+      </div>
+      <div class="sub" style="color:var(--muted);font-size:11px;margin-top:4px">New pups join this same cage and stay in the breeding cage (not requestable). Default sex U — set it once they're genotyped.</div>
+      <div class="modal-actions" style="justify-content:space-between">
+        <button class="btn sm" onclick="__bcage.wean(${bi})" style="border-color:var(--purple);color:var(--purple)" title="release the whole cage into the colony (requestable)">Wean whole cage →</button>
+        <div style="display:flex;gap:8px"><button class="btn sm" onclick="__bcage.close()">Cancel</button><button class="btn p" onclick="__bcage.save(${bi})">Apply</button></div>
+      </div>
+      <div class="err" id="bc_err"></div>`;
+    $('cohortOverlay').classList.add('open'); },
+  close:()=>$('cohortOverlay').classList.remove('open'),
+  wean:(bi)=>{ const ms=MINE_BCAGES[bi]; if(!ms)return; __bcage.close(); weanCage(ms.map(m=>m.id)); },
+  save:async(bi)=>{ const ms=MINE_BCAGES[bi]; if(!ms)return; const g=ms[0], ids=ms.map(m=>m.id);
+    const v=id=>{const el=$(id);return el?el.value.trim():'';};
+    const stamp={updated_by:USER.id,updated_at:new Date().toISOString()};
+    const uni=Object.assign({},stamp);
+    if(v('bc_cohort')) uni.cohort=v('bc_cohort');
+    if(v('bc_owner')) uni.responsible_person=v('bc_owner');
+    const uniformChanged=Object.keys(uni).length>2;
+    const perMouse=new Map();
+    [...$('cohortModal').querySelectorAll('.bc_sex')].forEach(el=>{ if(el.value!==(el.dataset.orig||'')) perMouse.set(el.dataset.id,Object.assign(perMouse.get(el.dataset.id)||{},{sex:el.value})); });
+    [...$('cohortModal').querySelectorAll('.bc_num')].forEach(el=>{ if(el.value.trim()!==(el.dataset.orig||'').trim()) perMouse.set(el.dataset.id,Object.assign(perMouse.get(el.dataset.id)||{},{tag_id:el.value.trim()||null})); });
+    [...$('cohortModal').querySelectorAll('.bc_dob')].forEach(el=>{ if(el.value.trim()!==(el.dataset.orig||'').trim()) perMouse.set(el.dataset.id,Object.assign(perMouse.get(el.dataset.id)||{},{dob:el.value.trim()||null})); });
+    const delIds=[...$('cohortModal').querySelectorAll('.bc_del:checked')].map(el=>el.dataset.id);
+    const delSet=new Set(delIds); delIds.forEach(id=>perMouse.delete(id));
+    const keepIds=ids.filter(id=>!delSet.has(id));
+    const addN=Math.max(0,parseInt($('bc_add_n').value,10)||0); let addNums=[];
+    if(addN>0){ const raw=v('bc_add_nums'); if(raw){ addNums=parseNums(raw);
+      const bad=addNums.find(n=>/-/.test(n)); if(bad){ $('bc_err').textContent=`Add: “${bad}” isn't a valid number or range.`; return; }
+      if(addNums.length>addN){ $('bc_err').textContent=`Add: ${addNums.length} numbers for only ${addN} pups.`; return; } } }
+    if(!uniformChanged && !perMouse.size && !delIds.length && !addN){ $('bc_err').textContent='Change at least one field.'; return; }
+    const finalTags=ms.filter(m=>!delSet.has(m.id)).map(m=>{ const c=perMouse.get(m.id); return (c&&'tag_id' in c)?c.tag_id:(m.tag_id||null); }).filter(Boolean).concat(addNums);
+    const dupTag=finalTags.find((t,i)=>finalTags.indexOf(t)!==i);
+    if(dupTag){ $('bc_err').textContent=`Number ${dupTag} would be used more than once in this cage.`; return; }
+    if(delIds.length && !confirm(`Remove ${delIds.length} mouse${delIds.length>1?'s':''} from this breeding cage? This permanently deletes ${delIds.length>1?'them':'it'}.`)) return;
+    try{
+      if(delIds.length){ const dr=await inChunks(delIds,'DELETE',{Prefer:'return=representation'});
+        if(!dr.length){ $('bc_err').textContent='Delete blocked by DB — run migration_002.sql'; return; }
+        await audit('mice',null,'BCAGE_REMOVE',{cage:g.cage,count:dr.length},null); }
+      if(uniformChanged && keepIds.length){ await inChunks(keepIds,'PATCH',{Prefer:'return=minimal'},uni);
+        await audit('mice',null,'BCAGE_MODIFY',{cage:g.cage,count:keepIds.length},uni); }
+      if(perMouse.size){ for(const [id,ch] of perMouse){ await api(`mice?id=eq.${id}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:Object.assign({},ch,stamp)}); }
+        await audit('mice',null,'BCAGE_EDIT',{cage:g.cage,count:perMouse.size},null); }
+      if(addN>0){ const addSex=$('bc_add_sex').value, addDob=v('bc_add_dob')||null;
+        const eff=k=>(k in uni)?uni[k]:g[k];
+        const base={cohort:eff('cohort'), genotype_label:g.genotype_label, dob:addDob, dob_estimated:false,
+          responsible_person:eff('responsible_person'), status:'healthy', experiments:g.experiments,
+          facility:g.facility, room:g.room, rack:g.rack, rack_row:g.rack_row, rack_col:g.rack_col,
+          cage:g.cage, current_location:g.current_location, batch_id:g.batch_id, n_cages:g.n_cages,
+          breeding:true, created_by:USER.id, updated_by:USER.id, last_verified:todayStr()};
+        const newRows=[]; for(let j=0;j<addN;j++) newRows.push(Object.assign({tag_id:addNums[j]||null, sex:addSex}, base));
+        await api('mice',{method:'POST',headers:{Prefer:'return=minimal'},body:newRows});
+        await audit('mice',null,'BCAGE_ADD_PUPS',{cage:g.cage,count:addN,sex:addSex},null); }
+      toast('Breeding cage updated'+(delIds.length?` · removed ${delIds.length}`:'')+(addN?` · +${addN} pup(s)`:'')); __bcage.close(); renderMine(); loadColony();
+    }catch(e){ $('bc_err').textContent=e.message; } }
 };
 $('cohortOverlay').addEventListener('mousedown',e=>{ if(e.target===$('cohortOverlay')) __cohort.close(); });
 
