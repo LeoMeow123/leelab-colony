@@ -49,6 +49,7 @@ create table if not exists mice (
   batch_id uuid,                   -- groups mice added together as one cohort
   status text not null default 'healthy'
     check (status in ('healthy','diseased','sacrificed','dead','transferred','collected','unknown')),
+  breeding boolean not null default false,   -- in an active breeding cage: grouped apart, not requestable
   responsible_person uuid references app_users(id),
   current_location text,
   experiments text,                -- comma-separated experiment tags (T-maze, Social, HCM, …)

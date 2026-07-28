@@ -249,6 +249,7 @@
   <!-- COLONY -->
   <div class="wrap" id="tab-colony">
     <div id="guardianStrip"></div>
+    <div id="breedingBox"></div>
     <div class="filters">
       <div class="f grow"><label>Search (mouse # / strain)</label><input class="in" id="fSearch" placeholder="e.g. 4471 or hMAP"></div>
       <div class="f"><label>Sex</label><select class="in" id="fSex"><option value="">any</option><option>M</option><option>F</option><option>U</option></select></div>
@@ -678,6 +679,7 @@ window.expAdd=expAdd;
 let sortKey='age_months', sortDir='asc', page=0, pageSize=50, total=0;
 let SEL=new Set(); // selected mouse ids for batch actions (persists across pages/filters until cleared)
 let viewMode='ind'; // 'ind' = one row per mouse, 'grp' = collapsed by genotype·sex·age·status
+let HAS_BREEDING=false; // set at boot once migration_010 (breeding column) is present; gates all breeding features
 let grpSortKey='', grpSortDir='asc', GRP_ROWS=[]; // grouped-view sort (client-side over the fetched rows)
 const GCOLS=[{k:'cohort',label:'Genotype'},{k:'genotype_label',label:'Strain'},{k:'sex',label:'Sex'},{k:'age_months',label:'Age (mo)'},{k:'count',label:'Count'},{k:'owner',label:'Owner'},{k:'location',label:'Location'},{k:'status',label:'Status'}];
 function cmpVal(a,b,dir){ if(a==null&&b==null)return 0; if(a==null)return 1; if(b==null)return -1; // nulls last
@@ -691,7 +693,8 @@ function grpVal(grp,k){ const ms=grp.ms, g=grp.g;
 
 function buildQuery(forExport){
   const p=[];
-  p.push('select=id,tag_id,sex,cohort,genotype_label,age_months,age_weeks,age_days,current_location,owner_name,responsible_person,status,is_stale,dob,dob_estimated,facility,room,rack,cage,rack_row,rack_col,experiments');
+  p.push('select=id,tag_id,sex,cohort,genotype_label,age_months,age_weeks,age_days,current_location,owner_name,responsible_person,status,is_stale,dob,dob_estimated,facility,room,rack,cage,rack_row,rack_col,experiments'+(HAS_BREEDING?',breeding':''));
+  if(HAS_BREEDING) p.push('breeding=is.false'); // breeding cages live in their own section, not the main list
   const q=$('fSearch').value.trim();
   if(q){ const t=encodeURIComponent('*'+q+'*'); p.push(`or=(tag_id.ilike."${t}",genotype_label.ilike."${t}")`); } // quote values so , . ( ) in the search don't split the or()
   if($('fSex').value) p.push('sex=eq.'+$('fSex').value);
@@ -707,6 +710,7 @@ function buildQuery(forExport){
   return 'mouse_v?'+p.join('&');
 }
 async function loadColony(){
+  renderBreedingBox();
   if(viewMode==='grp') return loadGroups();
   renderHead();
   try{
@@ -727,6 +731,42 @@ async function loadGroups(){
     renderGroups(rows);
     $('mouseCountHdr').textContent = total?('· '+total.toLocaleString()+' mice'):'';
   }catch(e){ renderGroupHead(); $('tbody').innerHTML=`<tr><td colspan="9" class="empty">Error: ${esc(e.message)}</td></tr>`; }
+}
+// ---- breeding cages: grouped by cage, purple, not requestable, with a Wean action ----
+function breedingCagesHtml(rows, canWean){
+  const groups=new Map();
+  rows.forEach(m=>{ const k=[m.facility,m.room,m.rack,m.rack_row,m.rack_col,m.cage].join('¦'); if(!groups.has(k))groups.set(k,[]); groups.get(k).push(m); });
+  const cageHtml=ms=>{ const g=ms[0];
+    const comp=['M','F','U'].map(s=>{const c=ms.filter(m=>m.sex===s).length; return c?c+s:null;}).filter(Boolean).join(' + ')||'—';
+    const dobs=[...new Set(ms.map(m=>m.dob).filter(Boolean))], dobStr=dobs.length?dobs.join(' + '):'—';
+    const ids=ms.map(m=>m.id);
+    return `<div style="border:1px solid var(--purple);border-radius:10px;padding:8px 12px;background:rgba(124,58,237,.06);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <span style="font-weight:700;color:var(--purple);white-space:nowrap">🔬 Cage ${esc(g.cage||'—')}</span>
+      <span class="cohort">${esc(g.cohort||'—')}</span>
+      <span><b>${esc(comp)}</b> <span class="sub" style="color:var(--muted);font-size:12px">(${ms.length})</span></span>
+      <span class="sub" style="color:var(--muted);font-size:12px">DOB ${esc(dobStr)}</span>
+      <span class="sub" style="color:var(--muted);font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis">${esc(g.current_location||'')}</span>
+      <span class="sub" style="color:var(--muted);font-size:12px">${esc(g.owner_name||'')}</span>
+      ${canWean?`<button class="btn sm" data-wean="${esc(ids.join(','))}" style="margin-left:auto;border-color:var(--purple);color:var(--purple)" title="release these mice into the colony (breeding off → requestable)">Wean →</button>`:''}
+    </div>`; };
+  return `<div class="section-h" style="color:var(--purple)">🔬 Breeding cages · ${groups.size} <span class="sub" style="color:var(--muted);font-weight:400;font-size:12px">— kept apart, not requestable · Wean releases them into the colony</span></div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">${[...groups.values()].map(cageHtml).join('')}</div>`;
+}
+function wireWean(el){ el.querySelectorAll('[data-wean]').forEach(b=>b.onclick=()=>weanCage(b.dataset.wean.split(','))); }
+async function weanCage(ids){ if(!ids||!ids.length)return;
+  if(!confirm(`Wean ${ids.length} mouse/mice out of breeding? They become regular colony mice (requestable).`))return;
+  try{ await inChunks(ids,'PATCH',{Prefer:'return=minimal'},{breeding:false,updated_by:USER.id,updated_at:new Date().toISOString()});
+    await audit('mice',null,'WEAN',null,{count:ids.length}); toast(`Weaned ${ids.length} — now in the colony`);
+    loadColony(); const at=document.querySelector('.tab.active'); if(at&&at.dataset.tab==='mine') renderMine();
+  }catch(e){ toast('Wean failed: '+e.message); } }
+window.weanCage=weanCage;
+async function renderBreedingBox(){
+  const el=$('breedingBox'); if(!el) return;
+  if(!HAS_BREEDING){ el.innerHTML=''; return; }
+  let f=''; if($('fOwner')&&$('fOwner').value) f+='&responsible_person=eq.'+$('fOwner').value; if($('fFac')&&$('fFac').value) f+='&facility=eq.'+encodeURIComponent($('fFac').value);
+  let rows=[]; try{ rows=(await api('mouse_v?breeding=is.true'+f+'&select=id,tag_id,sex,cohort,genotype_label,dob,age_months,cage,current_location,owner_name,facility,room,rack,rack_row,rack_col&order=cage')).data||[]; }catch(_){ el.innerHTML=''; return; }
+  el.innerHTML=rows.length?breedingCagesHtml(rows,true):'';
+  wireWean(el);
 }
 function renderGroupHead(){
   $('thead').innerHTML='<th class="selcol"></th>'+GCOLS.map(c=>{ const a=grpSortKey===c.k; return `<th data-gk="${c.k}" class="sortable${a?' sorted':''}">${c.label} <span class="ar">${a?(grpSortDir==='asc'?'▲':'▼'):'⇅'}</span></th>`; }).join('');
@@ -791,7 +831,7 @@ function renderRows(rows){
     <td>${m.age_months!=null?(m.dob_estimated?'~':'')+m.age_months:'—'}</td>
     <td>${esc(m.current_location||'')}</td>
     <td>${esc(m.owner_name||'')}</td>
-    <td><span class="badge b-${esc(m.status)}">${esc(m.status)}</span>${m.is_stale?'<span class="badge b-stale">stale</span>':''}</td>
+    <td><span class="badge b-${esc(m.status)}">${esc(m.status)}</span>${m.breeding?'<span class="badge b-collected" title="breeding cage — not requestable">🔬 breeding</span>':''}${m.is_stale?'<span class="badge b-stale">stale</span>':''}</td>
     <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(m.experiments||'')}">${esc(m.experiments||'—')}</td>
   </tr>`).join('');
   $('tbody').querySelectorAll('tr').forEach(tr=>tr.onclick=(e)=>{ if(e.target.classList.contains('rowsel'))return; openDetail(tr.dataset.id); });
@@ -901,7 +941,7 @@ function renderDetail(m,em,pr){
   tl.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
   $('detailModal').innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:flex-start">
-      <div><h2>${esc(m.tag_id||'(no tag)')} <span class="badge b-${esc(m.status)}">${esc(m.status)}</span>${m.is_stale?'<span class="badge b-stale">stale</span>':''}</h2>
+      <div><h2>${esc(m.tag_id||'(no tag)')} <span class="badge b-${esc(m.status)}">${esc(m.status)}</span>${m.breeding?'<span class="badge b-collected" title="breeding cage — not requestable">🔬 breeding</span>':''}${m.is_stale?'<span class="badge b-stale">stale</span>':''}</h2>
       <div class="mid">${esc(m.id)}</div></div>
       <button class="btn sm" onclick="__mc.close()">✕</button>
     </div>
@@ -923,6 +963,7 @@ function renderDetail(m,em,pr){
     <div class="timeline">${tl.length?tl.map(i=>`<div class="tl-item"><span class="dt">${esc(i.date||'—')}</span><span class="tag">${esc(i.tag)}</span><span>${esc(i.txt)}</span></div>`).join(''):'<div style="color:var(--muted);font-size:12px">No experiments or procedures logged.</div>'}</div>
     <div class="modal-actions">
       ${canDelMouse(m)?`<button class="btn r sm" onclick="__mc.del()">Delete mouse</button>${m.batch_id?`<button class="btn r sm" onclick="__mc.delCohort()">Delete cohort…</button>`:''}`:''}
+      ${m.breeding?`<button class="btn sm" onclick="weanCage(['${esc(m.id)}'])" style="border-color:var(--purple);color:var(--purple)" title="release this mouse from breeding into the colony">Wean →</button>`:''}
       <button class="btn g sm" onclick="__mc.verify()" title="Records that you physically checked this mouse today. If a mouse isn't verified for 30+ days it gets a “stale” badge — a reminder to re-check it.">✓ Mark verified today</button>
       <button class="btn p" onclick="__mc.edit()">Edit</button>
     </div>`;
@@ -1160,13 +1201,14 @@ $('addSave').onclick=async()=>{
       const gd=(gp.dob||'').trim(), gDob=gd||defDob, gEst=gd?false:defDobEst; // this group's DOB, else the default
       for(let j=0;j<count;j++){ const tag=nums[j]||null; if(tag)allNums.push(tag);
         rows.push(Object.assign({}, common, {tag_id:tag, sex:gp.sex||'U', cage:cageNo, dob:gDob, dob_estimated:gEst,
-          rack_row:cageRow, rack_col:cageCol, current_location:cl,
+          rack_row:cageRow, rack_col:cageCol, current_location:cl, breeding:!!c.breeding,
           facility:baseLoc.facility, room:baseLoc.room, rack:baseLoc.rack}, bnote?{notes:bnote}:{})); }
     }
   }
   if(!rows.length){ $('addErr').textContent='Add at least one mouse — enter numbers or a # of mice in a cage.'; return; }
   const dupAll=allNums.find((n,i)=>allNums.indexOf(n)!==i); if(dupAll){ $('addErr').textContent=`Number ${dupAll} is used in more than one cage.`; return; }
   const total=rows.length, pending=rows.filter(r=>!r.tag_id).length;
+  if(!HAS_BREEDING) rows.forEach(r=>{ delete r.breeding; }); // breeding column not present until migration_010
   try{
     await api('mice',{method:'POST',headers:{Prefer:'return=minimal'},body:rows});
     await audit('mice',null,'INSERT_COHORT',null,{cohort,owner:userName(owner),count:total,cages:CAGES.length,batch_id,dob_estimated:rows.some(r=>r.dob_estimated)});
@@ -1202,14 +1244,15 @@ async function renderMine(){
   if(!where){ $('mineList').innerHTML='<div class="empty">Log in to see your colony.</div>'; return; }
   $('mineList').innerHTML='<div class="sub" style="color:var(--muted)">Loading…</div>';
   try{
-    const r=await api(`mouse_v?${where}&select=id,tag_id,sex,cohort,genotype_label,dob,dob_estimated,age_months,status,current_location,facility,room,rack,rack_row,rack_col,cage,n_cages,owner_name,responsible_person,experiments,batch_id,created_at&order=created_at.desc`);
+    const r=await api(`mouse_v?${where}&select=id,tag_id,sex,cohort,genotype_label,dob,dob_estimated,age_months,status,current_location,facility,room,rack,rack_row,rack_col,cage,n_cages,owner_name,responsible_person,experiments,${HAS_BREEDING?'breeding,':''}batch_id,created_at&order=created_at.desc`);
     const rows=r.data||[];
     $('mineHdr').textContent = rows.length?('· '+rows.length+' mice'):'';
     if(!rows.length){ $('mineList').innerHTML='<div class="empty">No mice yet. Add one in the “＋ Add cohort” tab.</div>'; return; }
+    const breedingRows=HAS_BREEDING?rows.filter(m=>m.breeding):[], regRows=HAS_BREEDING?rows.filter(m=>!m.breeding):rows;
     const groups=new Map();
-    rows.forEach(m=>{ const k=mineGroupKey(m); if(!groups.has(k))groups.set(k,[]); groups.get(k).push(m); });
+    regRows.forEach(m=>{ const k=mineGroupKey(m); if(!groups.has(k))groups.set(k,[]); groups.get(k).push(m); }); // breeding cages shown apart, not in the sex/age groups
     MINE_GROUPS={};
-    let html=`<div id="mineBulkBar" style="display:none;align-items:center;gap:10px;background:var(--bg2);border:1px solid var(--red);border-radius:10px;padding:8px 12px;margin-bottom:10px">
+    let html=(breedingRows.length?breedingCagesHtml(breedingRows,true):'')+`<div id="mineBulkBar" style="display:none;align-items:center;gap:10px;background:var(--bg2);border:1px solid var(--red);border-radius:10px;padding:8px 12px;margin-bottom:10px">
         <b id="mineSelCount">0</b><span class="sub" style="color:var(--muted);font-size:12px">group(s) selected</span>
         <button class="btn r sm" id="mineDelSel">Delete selected</button>
         <button class="btn sm" id="mineSelClear">Clear</button></div>
@@ -1248,6 +1291,7 @@ async function renderMine(){
     }
     html+='</tbody></table></div>';
     $('mineList').innerHTML=html;
+    wireWean($('mineList'));
     $('mineList').querySelectorAll('tr.grp').forEach(tr=>tr.onclick=e=>{ if(e.target.closest('button')||e.target.closest('input'))return; // clicks on Modify/Delete/checkbox don't toggle
       tr.classList.toggle('open'); $('mineList').querySelectorAll('.mine-g-'+tr.dataset.gi).forEach(r=>r.classList.toggle('hidden')); });
     $('mineList').querySelectorAll('tr.member').forEach(tr=>tr.onclick=e=>{ if(e.target.closest('button'))return; openDetail(tr.dataset.id); });
@@ -1577,9 +1621,10 @@ function impBuild(){
     let notes=get(r,'notes')||null;
     // ---- breeding detection (your convention): "breeding" in notes, or a "+" in sex/amount/DOB ----
     const plus=sexStr.includes('+')||amtStr.includes('+')||dobStr.includes('+');
-    if((plus||/breed/i.test(notes||'')) && !/breed/i.test(notes||'')) notes = notes?notes+' · breeding':'breeding';
+    const breedingRow=plus||/breed/i.test(notes||'');
+    if(breedingRow && !/breed/i.test(notes||'')) notes = notes?notes+' · breeding':'breeding';
     const status=impStatus(statusStr);
-    const base={cohort, genotype_label:geno, status, responsible_person:owner,
+    const base={cohort, genotype_label:geno, status, breeding:breedingRow, responsible_person:owner,
       facility:loc.facility, room:loc.room, rack:loc.rack, cage:loc.cage, rack_row:loc.rack_row, rack_col:loc.rack_col,
       current_location:cl, experiments:exp, strain_background:null, date_of_death:dod,
       notes, last_verified:today, created_by:USER.id, updated_by:USER.id };
@@ -1614,6 +1659,7 @@ const IMP_PV_COLS=[
   {f:'genotype_label',label:'Strain',w:120},
   {f:'dob',label:'DOB',type:'date',w:140},
   {f:'status',label:'Status',type:'status',w:104},
+  {f:'breeding',label:'🔬 Breed',type:'breed',w:52},
   {f:'cage',label:'Cage',w:56,loc:true},
   {f:'rack_row',label:'Row',w:48,loc:true},
   {f:'rack_col',label:'Col',w:48,loc:true},
@@ -1622,7 +1668,7 @@ const IMP_PV_COLS=[
 function impPvEmpty(r){ return !(r.tag_id||r.sex||r.genotype_label||r.dob||r.current_location||r.cohort||r.experiments||r.notes||r.date_of_death); }
 function impBlankRow(){ const owner=$('imp_owner')?($('imp_owner').value||null):null;
   return {row:{tag_id:null,sex:null,cohort:($('imp_cohort')?($('imp_cohort').value||null):null),genotype_label:null,dob:null,dob_estimated:false,
-    status:'healthy',responsible_person:owner,facility:null,room:null,rack:null,cage:null,rack_row:null,rack_col:null,current_location:null,
+    status:'healthy',breeding:false,responsible_person:owner,facility:null,room:null,rack:null,cage:null,rack_row:null,rack_col:null,current_location:null,
     experiments:null,strain_background:null,date_of_death:null,notes:null,last_verified:todayStr(),created_by:USER.id,updated_by:USER.id}, warn:[], ri:-1}; }
 function impPvCell(i,col,row){
   const v=row[col.f]==null?'':row[col.f];
@@ -1630,6 +1676,7 @@ function impPvCell(i,col,row){
   if(col.type==='status') return `<select class="impv" data-i="${i}" data-f="status" style="width:${col.w}px">${STATUSES.map(s=>`<option${row.status===s?' selected':''}>${esc(s)}</option>`).join('')}</select>`;
   if(col.type==='date') return `<input class="impv" data-i="${i}" data-f="dob" type="date" style="width:${col.w}px" value="${esc(v)}">`;
   if(col.type==='cohort') return `<input class="impv" data-i="${i}" data-f="cohort" list="cohortDL" style="width:${col.w}px" value="${esc(v)}">`;
+  if(col.type==='breed') return `<input class="impv" data-i="${i}" data-f="breeding" type="checkbox" title="breeding cage — grouped apart, not requestable"${row.breeding?' checked':''}>`;
   return `<input class="impv" data-i="${i}" data-f="${col.f}" style="width:${col.w}px" value="${esc(v)}">`;
 }
 function impRenderPreview(){
@@ -1654,6 +1701,7 @@ function impRenderPreview(){
     <div class="err" id="impErr"></div>`;
   $('impStep').querySelectorAll('.impv').forEach(el=>el.onchange=()=>{
     const i=+el.dataset.i, f=el.dataset.f, b=IMP._built[i]; if(!b)return;
+    if(el.type==='checkbox'){ b.row[f]=el.checked; return; }
     const val=el.value.trim(); b.row[f]= val===''?null:val;
     if(f==='dob') b.row.dob_estimated=false;                       // a hand-entered date is real, not estimated
     if(f==='cage'||f==='rack_row'||f==='rack_col')
@@ -1678,7 +1726,7 @@ async function impDoPreview(){
 async function impDoImport(){
   const built=(IMP._built||[]).filter(b=>!impPvEmpty(b.row)); if(!built.length){ if($('impErr'))$('impErr').textContent='Nothing to import — every row is blank.'; return; }
   if(!IMP._batchId){ if(!confirm(`Import ${built.length} mice into the colony? This import is one batch you can review or delete afterward.`))return; IMP._batchId=crypto.randomUUID(); IMP._done=0; }
-  const batch_id=IMP._batchId, rows=built.map(b=>Object.assign({batch_id},b.row));
+  const batch_id=IMP._batchId, rows=built.map(b=>{ const r=Object.assign({batch_id},b.row); if(!HAS_BREEDING) delete r.breeding; return r; });
   $('impGo').disabled=true; $('impErr').textContent='Importing…';
   try{
     for(let i=IMP._done;i<rows.length;i+=100){ await api('mice',{method:'POST',headers:{Prefer:'return=minimal'},body:rows.slice(i,Math.min(i+100,rows.length))}); IMP._done=Math.min(i+100,rows.length); $('impErr').textContent=`Imported ${IMP._done}/${rows.length}…`; }
@@ -1959,7 +2007,7 @@ window.__rq={
     rec.assignee_ids=assignees; rec.assignee_id=assignees[0]; rec.status='open';
     try{
       const mouseNo=g('q_mouse'); // note the specific mouse (for approve → transfer) if one is given
-      if(mouseNo){ const hit=(await api('mice?select=id&status=in.(healthy,diseased)&tag_id=eq.'+encodeURIComponent(mouseNo)+'&limit=1')).data;
+      if(mouseNo){ const hit=(await api('mice?select=id&status=in.(healthy,diseased)'+(HAS_BREEDING?'&breeding=is.false':'')+'&tag_id=eq.'+encodeURIComponent(mouseNo)+'&limit=1')).data;
         if(hit&&hit[0]) rec.target_mouse_id=hit[0].id; }
       const r=await api('requests',{method:'POST',headers:{Prefer:'return=representation'},body:[rec]});
       const newId=r.data&&r.data[0]&&r.data[0].id;
@@ -2252,7 +2300,8 @@ function showMigrationBanner(){
 async function boot(){
   if(!configured()){ showScreen('setup'); if(URLB)$('cfgUrl').value=URLB; return; }
   await loadRefs();
-  try{ await api('mouse_v?select=batch_id,dob_estimated,facility,cage&limit=0'); await api('requests?select=assignee_ids,request_type,mice_info&limit=0'); await api('guardian_angels?select=id&limit=0'); await api('app_users?select=must_change_password&limit=0'); await api('angel_reactions?select=id&limit=0'); }catch(_){ showMigrationBanner(); } // a migration hasn't been run yet → warn instead of cryptic save errors
+  try{ await api('mouse_v?select=breeding&limit=0'); HAS_BREEDING=true; }catch(_){ HAS_BREEDING=false; } // breeding features light up once migration_010 is run
+  try{ await api('mouse_v?select=batch_id,dob_estimated,facility,cage,breeding&limit=0'); await api('requests?select=assignee_ids,request_type,mice_info&limit=0'); await api('guardian_angels?select=id&limit=0'); await api('app_users?select=must_change_password&limit=0'); await api('angel_reactions?select=id&limit=0'); }catch(_){ showMigrationBanner(); } // a migration hasn't been run yet → warn instead of cryptic save errors
   // populate selects that persist across screens
   $('fOwner').innerHTML='<option value="">any</option>'+USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
   $('fCohort').innerHTML='<option value="">any</option>'+COHORTS.map(c=>`<option>${esc(c)}</option>`).join('');
