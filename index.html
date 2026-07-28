@@ -1572,7 +1572,8 @@ function impBuild(){
     const posStr=get(r,'position'); if(posStr){ const pp=parsePosition(posStr); if(pp.col)rcol=pp.col; if(pp.row)rrow=pp.row; }
     const loc={facility:get(r,'facility')||null,room:get(r,'room')||null,rack:get(r,'rack')||null,cage:get(r,'cage')||null,rack_row:rrow,rack_col:rcol};
     const cl=buildLoc(loc)||null;
-    const sexStr=get(r,'sex'), amtStr=get(r,'count'), dobStr=get(r,'dob'), tagStr=get(r,'tag_id');
+    const plusNorm=s=>(s||'').replace(/[＋﹢+]/g,'+'); // accept full-width ＋ / small ﹢ too (Excel / CJK input)
+    const sexStr=plusNorm(get(r,'sex')), amtStr=plusNorm(get(r,'count')), dobStr=plusNorm(get(r,'dob')), tagStr=get(r,'tag_id');
     let notes=get(r,'notes')||null;
     // ---- breeding detection (your convention): "breeding" in notes, or a "+" in sex/amount/DOB ----
     const plus=sexStr.includes('+')||amtStr.includes('+')||dobStr.includes('+');
