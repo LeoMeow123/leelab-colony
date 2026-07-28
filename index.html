@@ -1013,8 +1013,10 @@ window.__mc={
 let CAGES=[];
 function nextCageNo(){ return String(Math.max(0,...CAGES.map(c=>parseInt(c.cage,10)||0))+1); } // avoids collisions after removing a middle cage
 function newCage(){ return {cage:nextCageNo(), sex:'M', dob:'', row:'', col:'', nums:'', count:''}; } // dob + rack position (row/col) are per-cage
+// Breeding cage: one cage holding several (sex, DOB, numbers) sub-groups — dam/sire/pups differ. Tagged "breeding" in notes.
+function newBreedingCage(){ return {cage:nextCageNo(), row:'', col:'', breeding:true, groups:[{sex:'M',dob:'',nums:'',count:'1'},{sex:'F',dob:'',nums:'',count:'1'}]}; }
 function renderCages(){
-  $('c_cages').innerHTML=CAGES.map((c,i)=>`<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+  const normalRow=(c,i)=>`<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
       <span style="width:32px;color:var(--muted);font-size:12px">Cage</span>
       <input class="in cg" data-i="${i}" data-k="cage" style="width:44px" title="cage number" placeholder="#" value="${esc(c.cage)}">
       <input class="in cg" data-i="${i}" data-k="row" style="width:44px" title="rack row (this cage's position)" placeholder="row" value="${esc(c.row||'')}">
@@ -1025,12 +1027,41 @@ function renderCages(){
       <input class="in cg" data-i="${i}" data-k="nums" style="flex:1;min-width:104px;max-width:230px" title="mouse numbers in this cage" placeholder="mouse #s — e.g. 4471-4478 (blank = pending)" value="${esc(c.nums)}">
       <input class="in cg" data-i="${i}" data-k="count" type="number" min="0" style="width:66px" title="# mice in cage" placeholder="# mice" value="${esc(c.count)}">
       <button type="button" class="btn r sm" data-rm="${i}" title="remove cage">✕</button>
-    </div>`).join('')+`<button type="button" class="btn sm" id="c_addcage">+ Add cage</button>`;
+    </div>`;
+  const breedingBlock=(c,i)=>`<div style="border:1px solid var(--purple);border-radius:10px;padding:8px 10px;margin-bottom:8px;background:rgba(124,58,237,.06)">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
+        <span style="color:var(--purple);font-weight:700;font-size:12px">🔬 Breeding cage</span>
+        <span style="width:32px;color:var(--muted);font-size:12px;margin-left:6px">Cage</span>
+        <input class="in cg" data-i="${i}" data-k="cage" style="width:44px" title="cage number" placeholder="#" value="${esc(c.cage)}">
+        <input class="in cg" data-i="${i}" data-k="row" style="width:44px" title="rack row" placeholder="row" value="${esc(c.row||'')}">
+        <input class="in cg" data-i="${i}" data-k="col" style="width:44px" title="rack column" placeholder="col" value="${esc(c.col||'')}">
+        <span class="sub" style="color:var(--muted);font-size:11px">mixed M+F, tagged “breeding” in notes</span>
+        <button type="button" class="btn r sm" data-rm="${i}" style="margin-left:auto" title="remove whole cage">✕ cage</button>
+      </div>
+      ${(c.groups||[]).map((gp,gi)=>`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:4px 0 4px 18px">
+        <select class="in bcg" data-i="${i}" data-g="${gi}" data-bk="sex" style="width:64px" title="sex">${['M','F','U'].map(s=>`<option${gp.sex===s?' selected':''}>${s}</option>`).join('')}</select>
+        <span style="color:var(--muted);font-size:11px">DOB</span>
+        <input class="in bcg" data-i="${i}" data-g="${gi}" data-bk="dob" type="date" style="width:138px" title="this group's DOB" value="${esc(gp.dob||'')}">
+        <input class="in bcg" data-i="${i}" data-g="${gi}" data-bk="nums" style="flex:1;min-width:100px;max-width:200px" title="mouse numbers for this group" placeholder="mouse #s (blank = pending)" value="${esc(gp.nums||'')}">
+        <input class="in bcg" data-i="${i}" data-g="${gi}" data-bk="count" type="number" min="0" style="width:58px" title="# in this group" placeholder="#" value="${esc(gp.count||'')}">
+        <button type="button" class="btn sm" data-brm="${i}" data-bg="${gi}" title="remove this group">✕</button>
+      </div>`).join('')}
+      <button type="button" class="btn sm" data-bgadd="${i}" style="margin-left:18px;margin-top:2px">+ add group (sex / DOB)</button>
+    </div>`;
+  $('c_cages').innerHTML=CAGES.map((c,i)=>c.breeding?breedingBlock(c,i):normalRow(c,i)).join('')
+    +`<div style="display:flex;gap:8px;margin-top:4px"><button type="button" class="btn sm" id="c_addcage">+ Add cage</button><button type="button" class="btn sm" id="c_addbreed" style="border-color:var(--purple);color:var(--purple)">+ Add breeding cage</button></div>`;
   const nc=$('c_ncages'); if(nc)nc.value=CAGES.length;
+  // normal-cage fields + breeding cage-level (cage/row/col)
   $('c_cages').querySelectorAll('.cg').forEach(el=>el.onchange=()=>{ const i=+el.dataset.i, k=el.dataset.k; CAGES[i][k]=el.value;
-    if(k==='nums'){ const n=parseNums(el.value).filter(x=>/^\d+$/.test(x)).length; const cur=parseInt(CAGES[i].count,10)||0; if(n>cur){ CAGES[i].count=String(n); renderCages(); } } }); // only bump count up, never clobber a larger manual value
+    if(k==='nums'){ const n=parseNums(el.value).filter(x=>/^\d+$/.test(x)).length; const cur=parseInt(CAGES[i].count,10)||0; if(n>cur){ CAGES[i].count=String(n); renderCages(); } } });
+  // breeding sub-group fields
+  $('c_cages').querySelectorAll('.bcg').forEach(el=>el.onchange=()=>{ const i=+el.dataset.i, gi=+el.dataset.g, bk=el.dataset.bk; CAGES[i].groups[gi][bk]=el.value;
+    if(bk==='nums'){ const n=parseNums(el.value).filter(x=>/^\d+$/.test(x)).length; const cur=parseInt(CAGES[i].groups[gi].count,10)||0; if(n>cur){ CAGES[i].groups[gi].count=String(n); renderCages(); } } });
   $('c_cages').querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{ CAGES.splice(+b.dataset.rm,1); if(!CAGES.length)CAGES.push(newCage()); renderCages(); });
+  $('c_cages').querySelectorAll('[data-brm]').forEach(b=>b.onclick=()=>{ const i=+b.dataset.brm, gi=+b.dataset.bg; CAGES[i].groups.splice(gi,1); if(!CAGES[i].groups.length)CAGES[i].groups.push({sex:'F',dob:'',nums:'',count:''}); renderCages(); });
+  $('c_cages').querySelectorAll('[data-bgadd]').forEach(b=>b.onclick=()=>{ CAGES[+b.dataset.bgadd].groups.push({sex:'F',dob:'',nums:'',count:''}); renderCages(); });
   $('c_addcage').onclick=()=>{ CAGES.push(newCage()); renderCages(); };
+  $('c_addbreed').onclick=()=>{ CAGES.push(newBreedingCage()); renderCages(); };
 }
 let ADD_MODE='cohort';
 function renderCohortForm(mode){
@@ -1114,19 +1145,24 @@ $('addSave').onclick=async()=>{
     n_cages:CAGES.length}; // dob + rack_row/rack_col are set per cage below
   const rows=[], allNums=[];
   for(let i=0;i<CAGES.length;i++){ const c=CAGES[i], cageNo=(c.cage||'').trim()||String(i+1);
-    let nums=[]; if((c.nums||'').trim()){ nums=parseNums(c.nums);
-      const bad=nums.find(n=>/-/.test(n)); if(bad){ $('addErr').textContent=`Cage ${cageNo}: “${bad}” isn't a valid number (a range must span fewer than 1000).`; return; }
-      const dup=nums.find((n,j)=>nums.indexOf(n)!==j); if(dup){ $('addErr').textContent=`Cage ${cageNo}: ${dup} appears more than once.`; return; } }
-    const count=(c.count||'').trim()!==''? Number(c.count) : nums.length;
-    if(!Number.isInteger(count)||count<0){ $('addErr').textContent=`Cage ${cageNo}: # mice must be a whole number ≥ 0.`; return; }
-    if(nums.length>count){ $('addErr').textContent=`Cage ${cageNo}: ${nums.length} numbers for only ${count} mice.`; return; }
     const cageRow=(c.row||'').trim()||defRow, cageCol=(c.col||'').trim()||defCol; // this cage's rack position, else the default
     const cl=buildLoc(Object.assign({cage:cageNo,rack_row:cageRow,rack_col:cageCol}, baseLoc))||null;
-    const cd=(c.dob||'').trim(), cageDob=cd||defDob, cageDobEst=cd?false:defDobEst; // this cage's DOB, else the default
-    for(let j=0;j<count;j++){ const tag=nums[j]||null; if(tag)allNums.push(tag);
-      rows.push(Object.assign({tag_id:tag, sex:c.sex||'U', cage:cageNo, dob:cageDob, dob_estimated:cageDobEst,
-        rack_row:cageRow, rack_col:cageCol, current_location:cl,
-        facility:baseLoc.facility, room:baseLoc.room, rack:baseLoc.rack}, common)); }
+    const bnote=c.breeding?(notes?notes+' · breeding cage':'breeding cage'):null; // breeding is flagged in notes
+    // a normal cage is just a single group; a breeding cage has several (sex, DOB, numbers) groups
+    const groups=c.breeding?(c.groups||[]):[{sex:c.sex, dob:c.dob, nums:c.nums, count:c.count}];
+    for(const gp of groups){
+      let nums=[]; if((gp.nums||'').trim()){ nums=parseNums(gp.nums);
+        const bad=nums.find(n=>/-/.test(n)); if(bad){ $('addErr').textContent=`Cage ${cageNo}: “${bad}” isn't a valid number (a range must span fewer than 1000).`; return; }
+        const dup=nums.find((n,j)=>nums.indexOf(n)!==j); if(dup){ $('addErr').textContent=`Cage ${cageNo}: ${dup} appears more than once.`; return; } }
+      const count=(String(gp.count||'')).trim()!==''? Number(gp.count) : nums.length;
+      if(!Number.isInteger(count)||count<0){ $('addErr').textContent=`Cage ${cageNo}: # mice must be a whole number ≥ 0.`; return; }
+      if(nums.length>count){ $('addErr').textContent=`Cage ${cageNo}: ${nums.length} numbers for only ${count} mice.`; return; }
+      const gd=(gp.dob||'').trim(), gDob=gd||defDob, gEst=gd?false:defDobEst; // this group's DOB, else the default
+      for(let j=0;j<count;j++){ const tag=nums[j]||null; if(tag)allNums.push(tag);
+        rows.push(Object.assign({}, common, {tag_id:tag, sex:gp.sex||'U', cage:cageNo, dob:gDob, dob_estimated:gEst,
+          rack_row:cageRow, rack_col:cageCol, current_location:cl,
+          facility:baseLoc.facility, room:baseLoc.room, rack:baseLoc.rack}, bnote?{notes:bnote}:{})); }
+    }
   }
   if(!rows.length){ $('addErr').textContent='Add at least one mouse — enter numbers or a # of mice in a cage.'; return; }
   const dupAll=allNums.find((n,i)=>allNums.indexOf(n)!==i); if(dupAll){ $('addErr').textContent=`Number ${dupAll} is used in more than one cage.`; return; }
@@ -1362,9 +1398,9 @@ window.__cohort={
 $('cohortOverlay').addEventListener('mousedown',e=>{ if(e.target===$('cohortOverlay')) __cohort.close(); });
 
 // ---------- import (CSV / Excel) ----------
-const IMP_FIELDS=[['','— ignore —'],['tag_id','Mouse #'],['sex','Sex'],['cohort','Genotype'],['genotype_label','Strain'],['dob','DOB (date)'],['age','Age (number)'],['status','Status'],['facility','Facility'],['room','Room'],['rack','Rack'],['cage','Cage'],['rack_row','Row'],['rack_col','Col'],['position','Row+Col combined (e.g. H7)'],['experiments','Experiments'],['date_of_death','Date of death'],['notes','Notes']]; // owner is NOT read from the file — it's a required picker (imp_owner) applied to all rows
+const IMP_FIELDS=[['','— ignore —'],['tag_id','Mouse #'],['sex','Sex'],['cohort','Genotype'],['genotype_label','Strain'],['dob','DOB (date)'],['age','Age (number)'],['count','Amount (# mice in cage)'],['status','Status'],['facility','Facility'],['room','Room'],['rack','Rack'],['cage','Cage'],['rack_row','Row'],['rack_col','Col'],['position','Row+Col combined (e.g. H7)'],['experiments','Experiments'],['date_of_death','Date of death'],['notes','Notes']]; // owner is NOT read from the file — it's a required picker (imp_owner) applied to all rows
 const IMP_REQUIRED=['tag_id','sex','cohort','dob']; // the fields we ask for up front; soft — import still allowed if unmapped
-const IMP_HINTS={tag_id:'ear-tag / cage-card #',sex:'M / F / U',cohort:'WT / Tau / …',dob:'a real date — or map Age instead',age:'used only if DOB is blank',genotype_label:'strain, e.g. C57BL/6, hMAP',status:'healthy / diseased / sacrificed / …',cage:'cage number / label',rack_col:'letters, e.g. H',rack_row:'number, e.g. 7',position:'one cell like H7 → col H + row 7 (use instead of Row & Col)'};
+const IMP_HINTS={tag_id:'ear-tag / cage-card #',sex:'M / F / U',cohort:'WT / Tau / …',dob:'a real date — or map Age instead',age:'used only if DOB is blank',genotype_label:'strain, e.g. C57BL/6, hMAP',status:'healthy / diseased / sacrificed / …',cage:'cage number / label',rack_col:'letters, e.g. H',rack_row:'number, e.g. 7',position:'one cell like H7 → col H + row 7 (use instead of Row & Col)',count:'# mice in this cage row → expands to that many mice; breeding cages: M+F / 1+3 / dob1+dob2'};
 let IMP={headers:[],data:[],fieldMap:{},file:''}; // fieldMap: our field key -> their column index (or -1 = none). Reversed from the old header->field map.
 function parseCSV(t){ const rows=[]; let row=[],cur='',q=false;
   for(let i=0;i<t.length;i++){ const c=t[i];
@@ -1376,6 +1412,7 @@ function parseCSV(t){ const rows=[]; let row=[],cur='',q=false;
 function impGuess(h){ h=(h||'').toLowerCase().trim();
   if(/strain|background/.test(h))return 'genotype_label'; // "Strain" (C57/hMAP) is stored in genotype_label
   if(/cage/.test(h))return 'cage'; // before tag_id so "Cage Number" isn't caught by /number/
+  if(/amount|\bcount\b|quantity|\bqty\b|#\s*mice|n\s*mice|no\.?\s*of\s*mice|mice\s*(count|number|#)|head\s*count|#\s*in\s*cage|per\s*cage/.test(h))return 'count'; // before tag_id (which catches /number/)
   if(/tag|mouse\s*#|mouse\s*no|mouse\s*num|ear|^id$|number|^#/.test(h))return 'tag_id';
   if(/^sex$|gender/.test(h))return 'sex';
   if(/genotype|geno|cohort|^line$/.test(h))return 'cohort'; // "Genotype" (WT/Tau) is the cohort column
@@ -1512,37 +1549,61 @@ function impRenderMap(){
   impUpdateHints();
   $('impPreview').onclick=impDoPreview;
 }
+// Split "+"-encoded breeding cells (M+F / 1+3 / dob1+dob2) into parallel (sex, amount, dob) groups.
+function impZipPlus(sexStr,amtStr,dobStr){
+  const S=sexStr.split('+').map(s=>s.trim()), A=amtStr.split('+').map(s=>s.trim()), D=dobStr.split('+').map(s=>s.trim());
+  const n=Math.max(S.length,A.length,D.length,1);
+  const pick=(arr,k)=> arr.length===0?'':(k<arr.length?arr[k]:(arr.length===1?arr[0]:''));
+  const out=[]; for(let k=0;k<n;k++) out.push({sex:pick(S,k), amt:pick(A,k), dob:pick(D,k)}); return out;
+}
 function impBuild(){
   const idx={}; IMP_FIELDS.forEach(f=>{ if(f[0])idx[f[0]]=(IMP.fieldMap[f[0]]==null?-1:IMP.fieldMap[f[0]]); });
   const get=(r,f)=>idx[f]>=0?(r[idx[f]]||'').trim():'';
   const dcohort=$('imp_cohort').value, downer=$('imp_owner').value, aunit=$('imp_ageunit').value;
-  const today=todayStr(), existing=IMP._existingTags||new Set(), seen=new Set();
-  return IMP.data.map((r,ri)=>{
-    const warn=[];
-    const sex=impSex(get(r,'sex'));
-    const dobStr=get(r,'dob'); let dob=impParseDate(dobStr), dobEst=false;
-    if(dob===undefined){ if(dobStr)warn.push(`unrecognized DOB “${dobStr}”`); dob=null; }
-    if(!dob){ const a=parseFloat(get(r,'age')); if(a>0){ dob=ageToDob(a,aunit); dobEst=true; } }
+  const today=todayStr(), existing=IMP._existingTags||new Set(), seen=new Set(), owner=downer||null;
+  const out=[];
+  IMP.data.forEach((r,ri)=>{
+    const rowWarn=[];
+    // ---- cage-level fields (shared by every mouse in this row) ----
+    const cohort=get(r,'cohort')||dcohort||null, geno=get(r,'genotype_label')||null, statusStr=get(r,'status'), exp=get(r,'experiments')||null;
     const dodStr=get(r,'date_of_death'); let dod=impParseDate(dodStr);
-    if(dod===undefined){ if(dodStr)warn.push(`unrecognized death date “${dodStr}”`); dod=null; }
-    const owner=downer||null; // owner is chosen from the user list (required select), not read from the file
-    const tag=get(r,'tag_id')||null;
-    if(tag){ if(seen.has(tag))warn.push('duplicate # in file'); else seen.add(tag); if(existing.has(tag))warn.push('# already in DB'); }
-    const status=impStatus(get(r,'status'));
-    if(dod && status==='healthy') warn.push('has a death date but status is healthy');
+    if(dod===undefined){ if(dodStr)rowWarn.push(`unrecognized death date “${dodStr}”`); dod=null; }
     let rrow=get(r,'rack_row')||null, rcol=get(r,'rack_col')||null;
-    const posStr=get(r,'position'); if(posStr){ const pp=parsePosition(posStr); if(pp.col)rcol=pp.col; if(pp.row)rrow=pp.row; } // combined "H7" cell overrides/fills row+col
+    const posStr=get(r,'position'); if(posStr){ const pp=parsePosition(posStr); if(pp.col)rcol=pp.col; if(pp.row)rrow=pp.row; }
     const loc={facility:get(r,'facility')||null,room:get(r,'room')||null,rack:get(r,'rack')||null,cage:get(r,'cage')||null,rack_row:rrow,rack_col:rcol};
-    const row={tag_id:tag, sex, cohort:get(r,'cohort')||dcohort||null, genotype_label:get(r,'genotype_label')||null,
-      dob, dob_estimated:dobEst, status, responsible_person:owner,
+    const cl=buildLoc(loc)||null;
+    const sexStr=get(r,'sex'), amtStr=get(r,'count'), dobStr=get(r,'dob'), tagStr=get(r,'tag_id');
+    let notes=get(r,'notes')||null;
+    // ---- breeding detection (your convention): "breeding" in notes, or a "+" in sex/amount/DOB ----
+    const plus=sexStr.includes('+')||amtStr.includes('+')||dobStr.includes('+');
+    if((plus||/breed/i.test(notes||'')) && !/breed/i.test(notes||'')) notes = notes?notes+' · breeding':'breeding';
+    const status=impStatus(statusStr);
+    const base={cohort, genotype_label:geno, status, responsible_person:owner,
       facility:loc.facility, room:loc.room, rack:loc.rack, cage:loc.cage, rack_row:loc.rack_row, rack_col:loc.rack_col,
-      current_location:buildLoc(loc)||null, experiments:get(r,'experiments')||null,
-      strain_background:get(r,'strain_background')||null, date_of_death:dod,
-      notes:get(r,'notes')||null, last_verified:today, created_by:USER.id, updated_by:USER.id };
-    const empty=!(row.tag_id||row.sex||row.genotype_label||row.dob||row.current_location||row.experiments||row.notes||row.date_of_death||row.strain_background||get(r,'cohort'));
-    if(empty) warn.push('blank row (no data mapped)');
-    return {row,warn,ri,empty};
+      current_location:cl, experiments:exp, strain_background:null, date_of_death:dod,
+      notes, last_verified:today, created_by:USER.id, updated_by:USER.id };
+    const emit=(sexRaw,dobRaw,tag)=>{
+      const warn=rowWarn.slice();
+      let dob=impParseDate(dobRaw), dobEst=false;
+      if(dob===undefined){ if(dobRaw)warn.push(`unrecognized DOB “${dobRaw}”`); dob=null; }
+      if(!dob){ const a=parseFloat(get(r,'age')); if(a>0){ dob=ageToDob(a,aunit); dobEst=true; } }
+      if(dod && status==='healthy') warn.push('has a death date but status is healthy');
+      const t=tag||null;
+      if(t){ if(seen.has(t))warn.push('duplicate # in file'); else seen.add(t); if(existing.has(t))warn.push('# already in DB'); }
+      const row=Object.assign({}, base, {tag_id:t, sex:impSex(sexRaw), dob, dob_estimated:dobEst});
+      const empty=!(row.tag_id||row.sex||row.genotype_label||row.dob||row.current_location||row.experiments||row.notes||row.date_of_death||cohort);
+      if(empty) warn.push('blank row (no data mapped)');
+      out.push({row,warn,ri,empty});
+    };
+    // expand only when we know a count (amount) or a "+" group; otherwise one row = one mouse (unchanged)
+    const expanding = plus || (amtStr!=='' && Number.isInteger(parseInt(amtStr,10)));
+    if(!expanding){ emit(sexStr, dobStr, tagStr||null); return; }
+    const groups = plus ? impZipPlus(sexStr,amtStr,dobStr) : [{sex:sexStr, amt:amtStr, dob:dobStr}];
+    const tagList=(tagStr?parseNums(tagStr):[]).filter(x=>/^\d+$/.test(x)); let tp=0; // ranges/lists → distribute; else pending
+    groups.forEach(gp=>{ let cnt=parseInt(gp.amt,10); if(!(cnt>=1))cnt=1;
+      for(let j=0;j<cnt;j++) emit(gp.sex, gp.dob, tp<tagList.length?tagList[tp++]:null); });
   });
+  return out;
 }
 // ---- editable preview grid ----
 const IMP_PV_COLS=[
