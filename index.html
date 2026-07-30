@@ -1456,7 +1456,7 @@ window.__bcage={
         <div><h2 style="margin:0;color:var(--purple)">🔬 Edit breeding cage · Cage ${esc(g.cage||'—')}</h2>
         <div class="mid">${ms.length} mice · ${esc(comp)} · ${esc(g.cohort||'')} ${esc(g.genotype_label||'')}</div></div>
         <button class="btn sm" onclick="__bcage.close()">✕</button></div>
-      <div class="sub" style="color:var(--muted);font-size:12px;margin:6px 0 12px">Breeding cages hold mixed sexes and litters. <b>Add newborn pups</b> as they're born, fix a sex / mouse # / DOB, or remove a mouse. They stay <b>not requestable</b> — use <b>Wean whole cage</b> once the litter is weaned.</div>
+      <div class="sub" style="color:var(--muted);font-size:12px;margin:6px 0 12px">Breeding cages hold mixed sexes and litters. <b>Add newborn pups</b> as they're born, <b>add an adult breeder</b> (dam / sire), fix a sex / mouse # / DOB, or remove a mouse. They stay <b>not requestable</b> — use <b>Wean whole cage</b> once the litter is weaned.</div>
       <div class="grid2">
         <div class="field"><label>Genotype (all)</label><select class="in" id="bc_cohort"><option value="">(unchanged)</option>${COHORTS.map(c=>`<option${g.cohort===c?' selected':''}>${esc(c)}</option>`).join('')}</select></div>
         <div class="field"><label>Owner (all)</label><select class="in" id="bc_owner"><option value="">(unchanged)</option>${USERS.map(u=>`<option value="${u.id}"${g.responsible_person===u.id?' selected':''}>${esc(u.full_name)}</option>`).join('')}</select></div>
@@ -1476,6 +1476,13 @@ window.__bcage={
         <input class="in" id="bc_add_nums" placeholder="mouse #s (optional, e.g. 4479-4480)" style="flex:1;min-width:140px">
       </div>
       <div class="sub" style="color:var(--muted);font-size:11px;margin-top:4px">New pups join this same cage and stay in the breeding cage (not requestable). Default sex U — set it once they're genotyped.</div>
+      <div class="section-h">Add a breeder (adult · one at a time)</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <select class="in" id="bc_br_sex" style="width:120px"><option value="">— add? —</option><option value="F">F (dam)</option><option value="M">M (sire)</option><option value="U">U</option></select>
+        <input class="in" id="bc_br_dob" type="date" title="breeder's date of birth" style="width:150px">
+        <input class="in" id="bc_br_num" placeholder="mouse # (optional)" style="flex:1;min-width:140px">
+      </div>
+      <div class="sub" style="color:var(--muted);font-size:11px;margin-top:4px">Adds <b>one</b> existing adult breeder to this cage — pick a sex to enable. Give its real DOB (age shows from that). Stays in the breeding cage (not requestable).</div>
       <div class="modal-actions" style="justify-content:space-between">
         <button class="btn sm" onclick="__bcage.wean(${bi})" style="border-color:var(--purple);color:var(--purple)" title="release the whole cage into the colony (requestable)">Wean whole cage →</button>
         <div style="display:flex;gap:8px"><button class="btn sm" onclick="__bcage.close()">Cancel</button><button class="btn p" onclick="__bcage.save(${bi})">Apply</button></div>
@@ -1502,8 +1509,9 @@ window.__bcage={
     if(addN>0){ const raw=v('bc_add_nums'); if(raw){ addNums=parseNums(raw);
       const bad=addNums.find(n=>/-/.test(n)); if(bad){ $('bc_err').textContent=`Add: “${bad}” isn't a valid number or range.`; return; }
       if(addNums.length>addN){ $('bc_err').textContent=`Add: ${addNums.length} numbers for only ${addN} pups.`; return; } } }
-    if(!uniformChanged && !perMouse.size && !delIds.length && !addN){ $('bc_err').textContent='Change at least one field.'; return; }
-    const finalTags=ms.filter(m=>!delSet.has(m.id)).map(m=>{ const c=perMouse.get(m.id); return (c&&'tag_id' in c)?c.tag_id:(m.tag_id||null); }).filter(Boolean).concat(addNums);
+    const brSex=$('bc_br_sex')?$('bc_br_sex').value:'', brDob=v('bc_br_dob')||null, brNum=v('bc_br_num')||null, addBr=!!brSex; // one adult breeder
+    if(!uniformChanged && !perMouse.size && !delIds.length && !addN && !addBr){ $('bc_err').textContent='Change at least one field.'; return; }
+    const finalTags=ms.filter(m=>!delSet.has(m.id)).map(m=>{ const c=perMouse.get(m.id); return (c&&'tag_id' in c)?c.tag_id:(m.tag_id||null); }).filter(Boolean).concat(addNums).concat(addBr&&brNum?[brNum]:[]);
     const dupTag=finalTags.find((t,i)=>finalTags.indexOf(t)!==i);
     if(dupTag){ $('bc_err').textContent=`Number ${dupTag} would be used more than once in this cage.`; return; }
     if(delIds.length && !confirm(`Remove ${delIds.length} mouse${delIds.length>1?'s':''} from this breeding cage? This permanently deletes ${delIds.length>1?'them':'it'}.`)) return;
@@ -1515,17 +1523,20 @@ window.__bcage={
         await audit('mice',null,'BCAGE_MODIFY',{cage:g.cage,count:keepIds.length},uni); }
       if(perMouse.size){ for(const [id,ch] of perMouse){ await api(`mice?id=eq.${id}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:Object.assign({},ch,stamp)}); }
         await audit('mice',null,'BCAGE_EDIT',{cage:g.cage,count:perMouse.size},null); }
-      if(addN>0){ const addSex=$('bc_add_sex').value, addDob=v('bc_add_dob')||null;
+      if(addN>0 || addBr){ // each added mouse keeps its own DOB (pups share theirs; the breeder is an adult)
         const eff=k=>(k in uni)?uni[k]:g[k];
-        const base={cohort:eff('cohort'), genotype_label:g.genotype_label, dob:addDob, dob_estimated:false,
+        const base={cohort:eff('cohort'), genotype_label:g.genotype_label, dob_estimated:false,
           responsible_person:eff('responsible_person'), status:'healthy', experiments:g.experiments,
           facility:g.facility, room:g.room, rack:g.rack, rack_row:g.rack_row, rack_col:g.rack_col,
           cage:g.cage, current_location:g.current_location, batch_id:g.batch_id, n_cages:g.n_cages,
           breeding:true, created_by:USER.id, updated_by:USER.id, last_verified:todayStr()};
-        const newRows=[]; for(let j=0;j<addN;j++) newRows.push(Object.assign({tag_id:addNums[j]||null, sex:addSex}, base));
+        const newRows=[];
+        if(addN>0){ const addSex=$('bc_add_sex').value, addDob=v('bc_add_dob')||null;
+          for(let j=0;j<addN;j++) newRows.push(Object.assign({tag_id:addNums[j]||null, sex:addSex, dob:addDob}, base)); }
+        if(addBr) newRows.push(Object.assign({tag_id:brNum, sex:brSex, dob:brDob}, base));
         await api('mice',{method:'POST',headers:{Prefer:'return=minimal'},body:newRows});
-        await audit('mice',null,'BCAGE_ADD_PUPS',{cage:g.cage,count:addN,sex:addSex},null); }
-      toast('Breeding cage updated'+(delIds.length?` · removed ${delIds.length}`:'')+(addN?` · +${addN} pup(s)`:'')); __bcage.close(); renderMine(); loadColony();
+        await audit('mice',null,'BCAGE_ADD',{cage:g.cage,pups:addN,breeders:addBr?1:0},null); }
+      toast('Breeding cage updated'+(delIds.length?` · removed ${delIds.length}`:'')+(addN?` · +${addN} pup(s)`:'')+(addBr?' · +1 breeder':'')); __bcage.close(); renderMine(); loadColony();
     }catch(e){ $('bc_err').textContent=e.message; } }
 };
 $('cohortOverlay').addEventListener('mousedown',e=>{ if(e.target===$('cohortOverlay')) __cohort.close(); });
