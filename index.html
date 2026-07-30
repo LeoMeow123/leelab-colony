@@ -185,6 +185,7 @@
   .section-h{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:14px 0 6px}
   .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:9px 16px;z-index:100;font-size:13px;opacity:0;transition:opacity .2s}
   .toast.show{opacity:1}
+  .reqremind{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:rgba(59,130,246,.10);border:1px solid var(--accent);border-radius:10px;padding:9px 14px;margin-bottom:12px;font-size:13px}
 </style>
 <script>try{if(localStorage.getItem('mc:theme')==='dark')document.documentElement.dataset.theme='dark';}catch(e){}</script>
 </head>
@@ -248,6 +249,7 @@
 
   <!-- COLONY -->
   <div class="wrap" id="tab-colony">
+    <div id="reqReminder" class="reqremind hidden"></div>
     <div id="guardianStrip"></div>
     <div class="filters">
       <div class="f grow"><label>Search (mouse # / strain)</label><input class="in" id="fSearch" placeholder="e.g. 4471 or hMAP"></div>
@@ -629,6 +631,25 @@ function startApp(greetMode){
   renderGuardianStrip();
   if(!USER.email) promptEmail(); // first time only — once saved it never asks again
   else if(greetMode && !localStorage.getItem('mc:realuser')) greet(); // warm hello every time (not while impersonating; skip if we're asking for email)
+  if(greetMode) remindRequests(); // once-a-day nudge about requests waiting on you (after the angel)
+}
+// Once-a-day reminder of open requests assigned to you. Shown at login, after the greeting; dismissible.
+async function remindRequests(){
+  const el=$('reqReminder'); if(!el||!USER) return;
+  if(localStorage.getItem('mc:realuser')) return;                       // not while impersonating
+  const key='mc:remindday:'+USER.id;
+  try{ if(localStorage.getItem(key)===pacificDayStr()){ el.classList.add('hidden'); return; } }catch(_){}  // already reminded today
+  let n=0;
+  try{ const r=await api('requests?select=id&status=in.(open,routed_to_breeding)&or=(assignee_id.eq.'+USER.id+',assignee_ids.cs.{'+USER.id+'})');
+    n=(r.data||[]).length; }catch(_){ return; }                        // pre-migration / offline → skip quietly
+  try{ localStorage.setItem(key,pacificDayStr()); }catch(_){}          // mark reminded even if 0 so we don't re-check all day
+  if(!n){ el.classList.add('hidden'); return; }
+  el.innerHTML=`<span>📋 <b>${n}</b> request${n>1?'s are':' is'} waiting on you.</span>
+    <button class="btn p sm" id="reqRemindView" style="margin-left:auto">View →</button>
+    <button class="btn sm" id="reqRemindX" title="dismiss">✕</button>`;
+  el.classList.remove('hidden');
+  $('reqRemindView').onclick=()=>{ el.classList.add('hidden'); switchTab('requests'); if($('reqFilter')){ $('reqFilter').value='assigned'; renderRequests(); } };
+  $('reqRemindX').onclick=()=>el.classList.add('hidden');
 }
 function promptEmail(){
   $('emailModal').innerHTML=`<h2 style="margin:0 0 4px">Your email</h2>
@@ -2051,13 +2072,13 @@ function openReqMail(emails, rec){
   const body=(`Hi,\n\nA mouse request was filed in the Lee Lab colony DB:\n\n  ${rec.subject}\n  ${rec.body||''}\n  Cohort: ${rec.needed_cohort||'any'} · Sex: ${rec.needed_sex||'any'} · Qty: ${rec.quantity||'—'}\n  Status: ${rec.status}\n\nFiled by ${USER.full_name}.\n\nOpen the colony app: ${appUrl}\n`).slice(0,1200);
   window.location.href='mailto:'+emails.map(encodeURIComponent).join(',')+'?subject='+encodeURIComponent('Mouse request: '+rec.subject)+'&body='+encodeURIComponent(body); }
 
-let curReq=null;
+let curReq=null, curReqMouse=null;
 async function openReq(id){
   try{
     curReq=(await api('requests?id=eq.'+id+'&select=*')).data[0];
     if(!curReq){ toast('Not found'); return; }
     const cm=(await api('request_comments?request_id=eq.'+id+'&select=*&order=created_at')).data||[];
-    let tgt=''; if(curReq.target_mouse_id){ const m=(await api('mice?id=eq.'+curReq.target_mouse_id+'&select=tag_id')).data[0]; if(m)tgt=m.tag_id; }
+    let tgt=''; curReqMouse=null; if(curReq.target_mouse_id){ const m=(await api('mice?id=eq.'+curReq.target_mouse_id+'&select=tag_id,facility,room,rack,rack_row,rack_col,cage,current_location')).data[0]; if(m){ tgt=m.tag_id; curReqMouse=m; } }
     renderReq(curReq,cm,tgt);
     $('reqOverlay').classList.add('open');
   }catch(e){ toast('Load failed: '+e.message); }
@@ -2075,6 +2096,18 @@ function renderReq(r,cm,tgt){
   } else if(isMgr()){ btns.push(`<button class="btn sm" onclick="__rq.decide('open')">Reopen</button>`); }
   const actions = btns.length?`<div class="modal-actions">${btns.join('')}</div>`:'';
   const needs=reqNeeds(r);
+  // On a specific-mouse transfer, offer to also relocate the mouse (prefilled with where it is now → blank change = no move).
+  const canXfer=(r.status==='open'||r.status==='routed_to_breeding')&&r.target_mouse_id&&canAct(r), xm=curReqMouse||{};
+  const dest = canXfer?`
+    <div class="section-h">Move location on transfer <span class="sub" style="color:var(--muted);font-weight:400;font-size:12px">(optional — prefilled with where it is now; edit to also move it)</span></div>
+    <div class="grid3">
+      <div class="field"><label>Facility</label><select class="in" id="xf_fac"><option value="">—</option>${(xm.facility&&!FACILITIES.includes(xm.facility))?`<option selected>${esc(xm.facility)}</option>`:''}${FACILITIES.map(f=>`<option${xm.facility===f?' selected':''}>${esc(f)}</option>`).join('')}</select></div>
+      <div class="field"><label>Room</label><input class="in" id="xf_room" value="${esc(xm.room||'')}"></div>
+      <div class="field"><label>Rack</label><input class="in" id="xf_rack" value="${esc(xm.rack||'')}"></div>
+      <div class="field"><label>Row</label><input class="in" id="xf_row" value="${esc(xm.rack_row||'')}"></div>
+      <div class="field"><label>Col</label><input class="in" id="xf_col" value="${esc(xm.rack_col||'')}"></div>
+      <div class="field"><label>Cage</label><input class="in" id="xf_cage" value="${esc(xm.cage||'')}"></div>
+    </div>`:'';
   $('reqModal').innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:flex-start">
       <div><h2>${esc(r.subject)}</h2><div class="mid">${r.request_type?reqTypeChip(r.request_type)+' · ':''}by ${esc(userName(r.requester_id))} · ${esc((r.created_at||'').slice(0,10))}</div></div>
@@ -2087,6 +2120,7 @@ function renderReq(r,cm,tgt){
     ${tgt?`<div class="kv"><span class="k">Specific mouse</span><span>#${esc(tgt)}</span></div>`:''}
     ${r.body?`<div class="kv"><span class="k">Details</span><span>${esc(r.body)}</span></div>`:''}
     ${r.decision_note?`<div class="kv"><span class="k">Note</span><span>${esc(r.decision_note)}</span></div>`:''}
+    ${dest}
     ${actions}
     <div class="section-h">Comments</div>
     <div>${cm.length?cm.map(c=>`<div class="tl-item"><span class="dt">${esc((c.created_at||'').slice(0,10))}</span><span><b>${esc(userName(c.author_id))}:</b> ${esc(c.body)}</span></div>`).join(''):'<div class="sub" style="color:var(--muted);font-size:12px">No comments yet.</div>'}</div>
@@ -2148,10 +2182,17 @@ window.__rq={
     if(kind==='transfer'){
       patch={status:'closed', decided_at:new Date().toISOString()};
       if(r.target_mouse_id){
-        try{ await api('mice?id=eq.'+r.target_mouse_id,{method:'PATCH',body:{responsible_person:r.requester_id,updated_by:USER.id,updated_at:new Date().toISOString()}});
-          await audit('mice',r.target_mouse_id,'TRANSFER',null,{to:userName(r.requester_id)}); }
+        const mp={responsible_person:r.requester_id,updated_by:USER.id,updated_at:new Date().toISOString()};
+        let moved=''; // optional relocation (only if the transfer form is present and its fields were changed)
+        if(document.getElementById('xf_fac')){ const gx=id=>{const e=$(id);return e?e.value.trim():'';};
+          const nf=gx('xf_fac'),nr=gx('xf_room'),nk=gx('xf_rack'),nrow=gx('xf_row'),ncol=gx('xf_col'),ncg=gx('xf_cage'), c=curReqMouse||{};
+          if(nf!==(c.facility||'')||nr!==(c.room||'')||nk!==(c.rack||'')||nrow!==(c.rack_row||'')||ncol!==(c.rack_col||'')||ncg!==(c.cage||'')){
+            Object.assign(mp,{facility:nf||null,room:nr||null,rack:nk||null,rack_row:nrow||null,rack_col:ncol||null,cage:ncg||null});
+            moved=buildLoc({facility:nf,room:nr,rack:nk,rack_row:nrow,rack_col:ncol,cage:ncg})||''; mp.current_location=moved||null; } }
+        try{ await api('mice?id=eq.'+r.target_mouse_id,{method:'PATCH',body:mp});
+          await audit('mice',r.target_mouse_id,'TRANSFER',null,{to:userName(r.requester_id),moved_to:moved||undefined}); }
         catch(e){ toast('Transfer failed: '+e.message); return; }
-        patch.decision_note='Mouse transferred to '+userName(r.requester_id); patch.target_mouse_id=null; // consumed — can't re-transfer on reopen
+        patch.decision_note='Mouse transferred to '+userName(r.requester_id)+(moved?' · moved to '+moved:''); patch.target_mouse_id=null; // consumed — can't re-transfer on reopen
       }
     } else {
       const st=map[kind]; if(!st)return;
