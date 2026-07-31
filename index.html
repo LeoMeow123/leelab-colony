@@ -468,11 +468,16 @@ function authHeaders(extra){
 }
 async function api(path,opts){
   opts=opts||{};
-  const res=await fetch(URLB.replace(/\/$/,'')+'/rest/v1/'+path,{
-    method:opts.method||'GET',
-    headers:authHeaders(opts.headers),
-    body:opts.body?JSON.stringify(opts.body):undefined,
-  });
+  const ctrl=new AbortController(), timer=setTimeout(()=>ctrl.abort(),30000); // never hang the UI forever — 30s ceiling per request
+  let res;
+  try{ res=await fetch(URLB.replace(/\/$/,'')+'/rest/v1/'+path,{
+      method:opts.method||'GET',
+      headers:authHeaders(opts.headers),
+      body:opts.body?JSON.stringify(opts.body):undefined,
+      signal:ctrl.signal,
+    }); }
+  catch(e){ if(e&&e.name==='AbortError') throw new Error('Request timed out (30s). The network or the Supabase project may be slow or paused — try again in a moment.'); throw e; }
+  finally{ clearTimeout(timer); }
   const range=res.headers.get('content-range');
   let data=null; try{ data=await res.json(); }catch(_){}
   if(!res.ok){ throw new Error((data&&(data.message||data.hint))||('HTTP '+res.status)); }
@@ -937,21 +942,24 @@ $('batchApply').onclick=()=>{ const n=SEL.size; if(!n)return; const f=$('batchFi
 // Move/regroup selected mice: partial override of location fields, current_location rebuilt per mouse, owner-scoped.
 async function batchMove(loc){ const ids=[...SEL]; if(!ids.length)return;
   const keys=['facility','room','rack','rack_row','rack_col','cage'];
-  let mice=[]; try{ for(let i=0;i<ids.length;i+=100){ const c=ids.slice(i,i+100);
-      const r=await api(`mice?id=in.(${c.join(',')})${ownFilter()}&select=id,facility,room,rack,rack_row,rack_col,cage`); mice=mice.concat(r.data||[]); } }
-    catch(e){ toast('Move failed: '+e.message); return; }
-  if(!mice.length){ toast(isMgr()?'No matching mice.':'None of the selected mice are yours to move.'); return; }
-  const groups=new Map(); // mice that land in the SAME final location share one patch
-  mice.forEach(m=>{ const fin={}; keys.forEach(k=>{ fin[k]=(k in loc)?loc[k]:(m[k]!=null&&m[k]!==''?m[k]:null); });
-    const sig=keys.map(k=>fin[k]??'').join('¦'); if(!groups.has(sig))groups.set(sig,{fin,ids:[]}); groups.get(sig).ids.push(m.id); });
-  const stamp={updated_by:USER.id,updated_at:new Date().toISOString()};
-  let nDone=0;
-  try{ for(const grp of groups.values()){ const patch=Object.assign({},stamp);
+  const btn=$('batchApply'), lbl=btn?btn.textContent:''; if(btn){ btn.disabled=true; btn.textContent='Moving…'; } // feedback so it never looks frozen
+  try{
+    let mice=[]; for(let i=0;i<ids.length;i+=100){ const c=ids.slice(i,i+100);
+      const r=await api(`mice?id=in.(${c.join(',')})${ownFilter()}&select=id,facility,room,rack,rack_row,rack_col,cage`); mice=mice.concat(r.data||[]); }
+    if(!mice.length){ toast(isMgr()?'No matching mice.':'None of the selected mice are yours to move.'); return; }
+    const groups=new Map(); // mice that land in the SAME final location share one patch
+    mice.forEach(m=>{ const fin={}; keys.forEach(k=>{ fin[k]=(k in loc)?loc[k]:(m[k]!=null&&m[k]!==''?m[k]:null); });
+      const sig=keys.map(k=>fin[k]??'').join('¦'); if(!groups.has(sig))groups.set(sig,{fin,ids:[]}); groups.get(sig).ids.push(m.id); });
+    const stamp={updated_by:USER.id,updated_at:new Date().toISOString()};
+    let nDone=0;
+    for(const grp of groups.values()){ const patch=Object.assign({},stamp);
       keys.forEach(k=>patch[k]=grp.fin[k]); patch.current_location=buildLoc(grp.fin)||null;
       const rows=await inChunks(grp.ids,'PATCH',{Prefer:'return=representation'},patch); nDone+=rows.length; }
     await audit('mice',null,'BATCH_MOVE',null,Object.assign({count:nDone,requested:ids.length},loc));
     const skipped=ids.length-nDone; toast(`Moved ${nDone} mice${skipped>0?` · ${skipped} skipped${isMgr()?'':' (not yours)'}`:''}`); SEL.clear(); loadColony();
-  }catch(e){ toast('Move failed: '+e.message); } }
+  }catch(e){ console.error('batchMove failed',e); alert('Move failed: '+e.message); } // blocking so the real error is readable, not a 1.8s toast
+  finally{ if(btn){ btn.disabled=false; btn.textContent=lbl||'Apply'; } }
+}
 $('batchVerify').onclick=()=>{ const n=SEL.size; if(!n)return; if(!confirm(`Mark ${n} mice verified today?`))return; batchPatch({last_verified:todayStr()},'BATCH_VERIFY'); };
 $('batchDelete').onclick=async()=>{ const ids=[...SEL]; if(!ids.length)return;
   if(!isMgr()){ toast('Bulk delete lives in “My colony” — you can delete your own cohorts there.'); return; }
