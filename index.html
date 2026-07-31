@@ -273,7 +273,7 @@
       <button class="btn sm" id="batchAll">Select all</button>
       <span class="batch-sep"></span>
       <label style="font-size:12px">Set</label>
-      <select class="in" id="batchField"><option value="cohort">Genotype</option><option value="genotype_label">Strain</option><option value="responsible_person">Owner</option><option value="status">Status</option></select>
+      <select class="in" id="batchField"><option value="cohort">Genotype</option><option value="genotype_label">Strain</option><option value="responsible_person">Owner</option><option value="status">Status</option><option value="location">Move / location</option></select>
       <span id="batchValWrap"></span>
       <button class="btn p sm" id="batchApply">Apply</button>
       <span class="batch-sep"></span>
@@ -880,6 +880,14 @@ function syncBatchBar(){ const n=SEL.size; $('batchBar').classList.toggle('hidde
   const more=total>n; $('batchAll').classList.toggle('hidden',!more); $('batchAll').textContent=`Select all ${total}`;
   const db=$('batchDelete'); if(db) db.style.display=isMgr()?'':'none'; } // delete on the shared page is managers-only; members delete their own in "My colony"
 function fillBatchValue(){ const f=$('batchField').value;
+  if(f==='location'){ $('batchValWrap').innerHTML=`<span style="display:inline-flex;gap:4px;flex-wrap:wrap;align-items:center">
+      <select class="in" id="bm_fac" style="width:auto"><option value="">facility…</option>${FACILITIES.map(x=>`<option>${esc(x)}</option>`).join('')}</select>
+      <input class="in" id="bm_room" placeholder="room" style="width:66px">
+      <input class="in" id="bm_rack" placeholder="rack" style="width:66px">
+      <input class="in" id="bm_row" placeholder="row" style="width:54px">
+      <input class="in" id="bm_col" placeholder="col" style="width:54px">
+      <input class="in" id="bm_cage" placeholder="cage" style="width:70px">
+      <span class="sub" style="color:var(--muted);font-size:11px">blank = keep each mouse's own</span></span>`; return; }
   if(f==='genotype_label'){ $('batchValWrap').innerHTML='<input class="in" id="batchValue" placeholder="genotype text" style="min-width:150px">'; return; }
   let o='';
   if(f==='cohort') o=COHORTS.map(c=>`<option>${esc(c)}</option>`).join('');
@@ -913,10 +921,37 @@ async function batchPatch(patch,verb){ const ids=[...SEL]; if(!ids.length)return
     const n=rows.length, skipped=ids.length-n; await audit('mice',null,verb,null,Object.assign({count:n,requested:ids.length},patch));
     toast(`${verb==='BATCH_VERIFY'?'Verified':'Updated'} ${n} mice${skipped>0?` · ${skipped} skipped${isMgr()?'':' (not yours)'}`:''}`); SEL.clear(); loadColony();
   }catch(e){ toast('Update failed: '+e.message); } }
-$('batchApply').onclick=()=>{ const n=SEL.size; if(!n)return; const f=$('batchField').value, el=$('batchValue'), v=el.value.trim();
+$('batchApply').onclick=()=>{ const n=SEL.size; if(!n)return; const f=$('batchField').value;
+  if(f==='location'){ // move / regroup: set any of facility/room/rack/row/col/cage; blank = keep each mouse's own
+    const g=id=>{const e=$(id);return e?e.value.trim():'';};
+    const map={facility:g('bm_fac'),room:g('bm_room'),rack:g('bm_rack'),rack_row:g('bm_row'),rack_col:g('bm_col'),cage:g('bm_cage')};
+    const loc={}; Object.keys(map).forEach(k=>{ if(map[k]!=='') loc[k]=map[k]; });
+    if(!Object.keys(loc).length){ toast('Fill at least one location field'); return; }
+    const summary=buildLoc(loc)||'(partial)';
+    if(!confirm(`Move ${n} selected mice → ${summary}?\nSetting: ${Object.keys(loc).join(', ')} (blank fields keep each mouse's current value).${isMgr()?'':'\n\nOnly mice you own or added will move.'}`))return;
+    batchMove(loc); return; }
+  const el=$('batchValue'), v=el.value.trim();
   if(f==='genotype_label'&&!v){ toast('Enter a genotype'); return; }
   const fl=$('batchField').selectedOptions[0].text, vl=el.tagName==='SELECT'?el.selectedOptions[0].text:v;
   if(!confirm(`Set ${fl} = “${vl}” for ${n} selected mice?${isMgr()?'':'\n\nOnly mice you own or added will change.'}`))return; batchPatch({[f]:v},'BATCH_UPDATE'); };
+// Move/regroup selected mice: partial override of location fields, current_location rebuilt per mouse, owner-scoped.
+async function batchMove(loc){ const ids=[...SEL]; if(!ids.length)return;
+  const keys=['facility','room','rack','rack_row','rack_col','cage'];
+  let mice=[]; try{ for(let i=0;i<ids.length;i+=100){ const c=ids.slice(i,i+100);
+      const r=await api(`mice?id=in.(${c.join(',')})${ownFilter()}&select=id,facility,room,rack,rack_row,rack_col,cage`); mice=mice.concat(r.data||[]); } }
+    catch(e){ toast('Move failed: '+e.message); return; }
+  if(!mice.length){ toast(isMgr()?'No matching mice.':'None of the selected mice are yours to move.'); return; }
+  const groups=new Map(); // mice that land in the SAME final location share one patch
+  mice.forEach(m=>{ const fin={}; keys.forEach(k=>{ fin[k]=(k in loc)?loc[k]:(m[k]!=null&&m[k]!==''?m[k]:null); });
+    const sig=keys.map(k=>fin[k]??'').join('¦'); if(!groups.has(sig))groups.set(sig,{fin,ids:[]}); groups.get(sig).ids.push(m.id); });
+  const stamp={updated_by:USER.id,updated_at:new Date().toISOString()};
+  let nDone=0;
+  try{ for(const grp of groups.values()){ const patch=Object.assign({},stamp);
+      keys.forEach(k=>patch[k]=grp.fin[k]); patch.current_location=buildLoc(grp.fin)||null;
+      const rows=await inChunks(grp.ids,'PATCH',{Prefer:'return=representation'},patch); nDone+=rows.length; }
+    await audit('mice',null,'BATCH_MOVE',null,Object.assign({count:nDone,requested:ids.length},loc));
+    const skipped=ids.length-nDone; toast(`Moved ${nDone} mice${skipped>0?` · ${skipped} skipped${isMgr()?'':' (not yours)'}`:''}`); SEL.clear(); loadColony();
+  }catch(e){ toast('Move failed: '+e.message); } }
 $('batchVerify').onclick=()=>{ const n=SEL.size; if(!n)return; if(!confirm(`Mark ${n} mice verified today?`))return; batchPatch({last_verified:todayStr()},'BATCH_VERIFY'); };
 $('batchDelete').onclick=async()=>{ const ids=[...SEL]; if(!ids.length)return;
   if(!isMgr()){ toast('Bulk delete lives in “My colony” — you can delete your own cohorts there.'); return; }
