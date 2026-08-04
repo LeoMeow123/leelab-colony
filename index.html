@@ -227,7 +227,7 @@
   .maplegend .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
   .ebsrack{display:flex;gap:12px;overflow-x:auto;padding:14px;background:var(--bg3);border:1px solid var(--border);border-radius:14px}
   .ebscage{flex:1;min-width:150px;min-height:300px;display:flex;flex-direction:column;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:0;overflow:hidden}
-  .ebscam{background:#333;color:#eee;text-align:center;font-size:11px;padding:3px;letter-spacing:.5px}
+  .ebscam{background:#333;color:#eee;text-align:center;font-size:12px;font-weight:700;padding:5px;letter-spacing:.5px}
   .ebscagehdr{font-weight:700;font-size:13px;text-align:center;padding:6px 4px;border-bottom:1px solid var(--border)}
   .ebscagebody{flex:1;display:flex;flex-direction:column;gap:3px;padding:8px;overflow:auto}
   .ebscage.drop{outline:2px dashed var(--accent);outline-offset:-2px;background:color-mix(in srgb, var(--accent) 12%, transparent)}
@@ -2722,13 +2722,13 @@ function renderMapEBS(inRoom){ const host=$('mapHost');
   const claimed=new Set([1,2,3,4].flatMap(n=>inCage(n).map(m=>m.id)));
   const other=inRoom.filter(m=>!claimed.has(m.id));
   const mouseRow=m=>`<div class="ebsm maprow" data-id="${esc(m.id)}">${esc(mouseLabel(m))}</div>`;
+  const camLabel=n=>'Cam'+String(n).padStart(2,'0');
   const cageBox=n=>{ const ms=inCage(n); return `<div class="ebscage" data-cage="${n}">
-      <div class="ebscam" title="overhead camera on top">📷 cam</div>
-      <div class="ebscagehdr">Cage ${n} <span style="color:var(--muted);font-weight:400">· ${ms.length}</span></div>
+      <div class="ebscam" title="overhead camera — ${camLabel(n)}">📷 ${camLabel(n)}<span style="opacity:.75;font-weight:400"> · ${ms.length}</span></div>
       <div class="ebscagebody">${ms.length?ms.map(mouseRow).join(''):'<div class="sub" style="color:var(--muted);font-size:12px;text-align:center;margin:auto">empty —<br>drop a mouse here</div>'}</div></div>`; };
   const otherHtml=other.length?`<div class="section-h" style="margin-top:16px">Other EBS mice · ${other.length} <span class="sub" style="color:var(--muted);font-weight:400;font-size:12px">— not in a cage (1–4). Drag one into a cage.</span></div>
     <div class="maptray">${other.map(m=>`<span class="traychip maprow" data-id="${esc(m.id)}" title="${esc(m.genotype_label||'')}">${esc(mouseLabel(m))}</span>`).join('')}</div>`:'';
-  host.innerHTML=mapCrumb()+`<div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:4px">EBS 58 — 1×4 rack of tall home cages, overhead camera on each.</div>
+  host.innerHTML=mapCrumb()+`<div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:4px">EBS 58 — 1×4 rack · cameras Cam01–Cam04.</div>
     <div class="sub" style="color:var(--muted);font-size:11px;margin-bottom:12px">✥ Drag a mouse into a cage to move it — you’ll confirm first.${isMgr()?'':' You can only move mice you own.'}</div>
     <div class="ebsrack">${[1,2,3,4].map(cageBox).join('')}</div>${otherHtml}`;
   // draggable mice (owner-gated), still clickable for detail
