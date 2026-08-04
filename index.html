@@ -225,13 +225,16 @@
   .maplegend{display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-top:10px}
   .maplegend .lg{display:inline-flex;align-items:center;gap:4px}
   .maplegend .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
-  .ebsrack{display:flex;gap:12px;overflow-x:auto;padding:14px;background:var(--bg3);border:1px solid var(--border);border-radius:14px}
-  .ebscage{flex:1;min-width:150px;min-height:300px;display:flex;flex-direction:column;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:0;overflow:hidden}
-  .ebscam{background:#333;color:#eee;text-align:center;font-size:12px;font-weight:700;padding:5px;letter-spacing:.5px}
-  .ebscagehdr{font-weight:700;font-size:13px;text-align:center;padding:6px 4px;border-bottom:1px solid var(--border)}
+  /* EBS = red-lit room, 4 tall transparent cages, camera module on top of each */
+  .ebsrack{display:flex;gap:16px;overflow-x:auto;padding:20px 16px 24px;background:linear-gradient(180deg,#6e1616 0%,#921d1d 55%,#6e1616 100%);border:1px solid #4a0f0f;border-radius:14px;box-shadow:inset 0 0 46px rgba(0,0,0,.4)}
+  .ebscage{flex:1;min-width:150px;min-height:330px;display:flex;flex-direction:column;color:#fff;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.38);border-radius:8px;padding:0;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.3)}
+  .ebscam{background:linear-gradient(#4c4c4c,#242424);display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 6px;font-size:12px;font-weight:700;color:#fff;border-bottom:1px solid rgba(0,0,0,.45)}
+  .ebscam .lens{width:9px;height:9px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#9db4ff,#0b1a4a);box-shadow:0 0 4px rgba(150,175,255,.9)}
+  .ebscam .camlbl{background:#fff;color:#1a1a1a;border-radius:3px;padding:1px 7px;letter-spacing:.5px}
+  .ebscam .camct{opacity:.85;font-weight:400}
   .ebscagebody{flex:1;display:flex;flex-direction:column;gap:3px;padding:8px;overflow:auto}
-  .ebscage.drop{outline:2px dashed var(--accent);outline-offset:-2px;background:color-mix(in srgb, var(--accent) 12%, transparent)}
-  .ebsm{padding:4px 2px;border-top:1px solid var(--border);font-size:13px}
+  .ebscage.drop{outline:2px dashed #fff;outline-offset:-3px;background:rgba(255,255,255,.24)}
+  .ebsm{padding:4px 2px;border-top:1px solid rgba(255,255,255,.22);font-size:13px}
 </style>
 <script>try{if(localStorage.getItem('mc:theme')==='dark')document.documentElement.dataset.theme='dark';}catch(e){}</script>
 </head>
@@ -2724,8 +2727,8 @@ function renderMapEBS(inRoom){ const host=$('mapHost');
   const mouseRow=m=>`<div class="ebsm maprow" data-id="${esc(m.id)}">${esc(mouseLabel(m))}</div>`;
   const camLabel=n=>'Cam'+String(n).padStart(2,'0');
   const cageBox=n=>{ const ms=inCage(n); return `<div class="ebscage" data-cage="${n}">
-      <div class="ebscam" title="overhead camera — ${camLabel(n)}">📷 ${camLabel(n)}<span style="opacity:.75;font-weight:400"> · ${ms.length}</span></div>
-      <div class="ebscagebody">${ms.length?ms.map(mouseRow).join(''):'<div class="sub" style="color:var(--muted);font-size:12px;text-align:center;margin:auto">empty —<br>drop a mouse here</div>'}</div></div>`; };
+      <div class="ebscam" title="overhead camera — ${camLabel(n)}"><span class="lens"></span><span class="camlbl">${camLabel(n)}</span><span class="camct">· ${ms.length}</span></div>
+      <div class="ebscagebody">${ms.length?ms.map(mouseRow).join(''):'<div class="sub" style="color:rgba(255,255,255,.7);font-size:12px;text-align:center;margin:auto">empty —<br>drop a mouse here</div>'}</div></div>`; };
   const otherHtml=other.length?`<div class="section-h" style="margin-top:16px">Other EBS mice · ${other.length} <span class="sub" style="color:var(--muted);font-weight:400;font-size:12px">— not in a cage (1–4). Drag one into a cage.</span></div>
     <div class="maptray">${other.map(m=>`<span class="traychip maprow" data-id="${esc(m.id)}" title="${esc(m.genotype_label||'')}">${esc(mouseLabel(m))}</span>`).join('')}</div>`:'';
   host.innerHTML=mapCrumb()+`<div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:4px">EBS 58 — 1×4 rack · cameras Cam01–Cam04.</div>
