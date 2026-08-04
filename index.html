@@ -239,7 +239,8 @@
     box-shadow:inset -9px 0 18px rgba(0,0,0,.12), inset 7px 0 12px rgba(255,255,255,.14), inset 0 9px 14px rgba(255,255,255,.12), 0 14px 26px rgba(0,0,0,.20)}
   .ebsbox::before{content:'';position:absolute;inset:0 0 auto 0;height:44%;background:linear-gradient(180deg, rgba(255,255,255,.16), transparent);pointer-events:none} /* glass reflection */
   .ebsbox::after{content:'';position:absolute;left:0;right:0;bottom:0;height:14px;background:linear-gradient(180deg, rgba(200,180,150,.22), rgba(200,180,150,.42));pointer-events:none} /* bedding at the bottom */
-  .ebscagebody{position:relative;z-index:1;width:100%;display:flex;flex-wrap:wrap;gap:1px 3px;justify-content:center;align-content:flex-end;align-items:flex-end;padding:8px 6px 15px;min-height:130px;max-height:280px;overflow:auto}
+  .ebslist{position:relative;z-index:1;flex:1;min-height:0;width:100%;display:flex;flex-direction:column;gap:2px;padding:8px 8px 4px;overflow:auto}
+  .ebsmice{position:relative;z-index:1;width:100%;display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-end;gap:1px 3px;padding:2px 6px 14px}
   .mouseicon{display:inline-flex;width:33px;height:25px;color:#1e1e1e;cursor:pointer;filter:drop-shadow(0 0 1px rgba(255,255,255,.85))}
   .mouseicon.movable{cursor:grab}
   .mouseicon svg{width:100%;height:100%;transition:transform .12s}
@@ -2746,9 +2747,13 @@ function renderMapEBS(inRoom){ const host=$('mapHost');
   const other=inRoom.filter(m=>!claimed.has(m.id));
   const mouseRow=m=>`<div class="ebsm maprow" data-id="${esc(m.id)}">${esc(mouseLabel(m))}</div>`;
   const camLabel=n=>'Cam'+String(n).padStart(2,'0');
-  const cageBox=n=>{ const ms=inCage(n); return `<div class="ebscage" data-cage="${n}">
+  const cageBox=n=>{ const ms=inCage(n);
+    const body = ms.length
+      ? `<div class="ebslist">${ms.map(mouseRow).join('')}</div><div class="ebsmice">${ms.map(mouseIconEl).join('')}</div>`
+      : '<div class="ebsempty">empty —<br>drop a mouse here</div>';
+    return `<div class="ebscage" data-cage="${n}">
       <div class="ebscam" title="overhead camera — ${camLabel(n)}"><span class="lens"></span><span class="camlbl">${camLabel(n)}</span><span class="camct">· ${ms.length}</span></div>
-      <div class="ebsbox"><div class="ebscagebody">${ms.length?ms.map(mouseIconEl).join(''):'<div class="ebsempty">empty —<br>drop a mouse here</div>'}</div></div></div>`; };
+      <div class="ebsbox">${body}</div></div>`; };
   const otherHtml=other.length?`<div class="section-h" style="margin-top:16px">Other EBS mice · ${other.length} <span class="sub" style="color:var(--muted);font-weight:400;font-size:12px">— not in a cage (1–4). Drag one into a cage.</span></div>
     <div class="maptray">${other.map(m=>`<span class="traychip maprow" data-id="${esc(m.id)}" title="${esc(m.genotype_label||'')}">${esc(mouseLabel(m))}</span>`).join('')}</div>`:'';
   host.innerHTML=mapCrumb()+`<div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:4px">EBS 58 — 1×4 rack · transparent tall home cages, camera on top (Cam01–Cam04).</div>
