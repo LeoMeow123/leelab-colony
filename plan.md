@@ -133,8 +133,9 @@ New top-level tab: **🗺 Map** (or "Rooms"). Breadcrumb-driven drill-down:
   - empty → faint outline;
   - occupied → colored by cohort/status, showing cage card # (if any), mouse count, and a
     sex mini-badge (e.g. `2♀1♂`); **breeding cells get the purple 🔬 marker**;
-  - **range/imprecise** rows (legacy "A-N / 1-10") → shown in an **"unplaced / whole-rack"
-    tray** beside the grid, since they don't pin to one cell.
+  - **range** rows (a cohort recorded as `H–L`) → rendered as a **striped block** spanning
+    that region with a summary chip (`WT · H–L × rows 4 · 18 mice`); click to open its mice
+    and drag individuals to precise cells. Only truly unreadable col/row → **Unplaceable** tray.
 - **Click a cell →** side panel listing the mice in that cage (reuse the existing mouse
   detail / row rendering); click a mouse → full detail + timeline.
 
