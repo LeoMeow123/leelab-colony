@@ -208,8 +208,9 @@
   .mcell.occ.breed{outline:2px solid var(--purple);outline-offset:-2px}
   .mcell.movable{cursor:grab}
   .mcell.movable:active{cursor:grabbing}
-  .mcell.range{cursor:pointer;border-color:color-mix(in srgb, var(--cc) 45%, transparent);background:color-mix(in srgb, var(--cc) 14%, transparent);background-image:repeating-linear-gradient(45deg, color-mix(in srgb, var(--cc) 26%, transparent) 0 4px, transparent 4px 9px)}
-  .mcell.range:hover{background:color-mix(in srgb, var(--cc) 30%, transparent)}
+  .mcell.range{cursor:pointer;border-color:color-mix(in srgb, var(--cc) 60%, transparent);background:color-mix(in srgb, var(--cc) 24%, transparent);background-image:repeating-linear-gradient(45deg, color-mix(in srgb, var(--cc) 42%, transparent) 0 5px, transparent 5px 10px)}
+  .mcell.range:hover{background:color-mix(in srgb, var(--cc) 40%, transparent)}
+  .mapcellpanel:not(:empty){margin:0 0 16px;padding:10px 12px;border:1px solid var(--accent);border-radius:12px;background:var(--bg2)}
   .mcell.drop{outline:2px dashed var(--accent);outline-offset:-2px;background:color-mix(in srgb, var(--accent) 22%, transparent)}
   .traychip[draggable="true"]{cursor:grab}
   .maprow.movable{cursor:grab}
@@ -2544,7 +2545,10 @@ function parseColSpan(v){ v=String(v||'').trim().toUpperCase(); if(/^[A-N]$/.tes
 function parseRowSpan(v){ v=String(v||'').trim(); if(/^[1-9]$/.test(v)) return [+v];
   const m=v.match(/^(\d+)\s*[-–]\s*(\d+)$/); if(m){ let a=+m[1],b=+m[2]; if(a>b){const t=a;a=b;b=t;} a=Math.max(1,a); b=Math.min(RACK_TPL.rows,b); if(b<a)return null; const out=[]; for(let i=a;i<=b;i++)out.push(i); return out; } return null; }
 const mapHasLoc=r=>!!(parseColSpan(r.rack_col)&&parseRowSpan(r.rack_row)); // has a spot on the rack (precise cell OR a range block)
-const mapClearDrop=()=>{ MAP_DRAG=null; document.querySelectorAll('.mcell.drop').forEach(x=>x.classList.remove('drop')); };
+const mapClearDrop=()=>{ MAP_DRAG=null; document.querySelectorAll('.mcell.drop, .ebscage.drop').forEach(x=>x.classList.remove('drop')); };
+const mapAge=m=> m&&m.age_months!=null ? (m.dob_estimated?'~':'')+m.age_months+'mo' : '';
+// Most mice have no ear-tag yet, so lead with the useful identity: sex · genotype · age (tag only if present).
+const mouseLabel=m=>{ const b=[]; if(m.tag_id)b.push('#'+m.tag_id); if(m.sex)b.push(m.sex); if(m.cohort)b.push(m.cohort); const a=mapAge(m); if(a)b.push(a); return b.join(' · ')||'(mouse)'; };
 function mapMostCommon(arr){ const m=new Map(); arr.filter(Boolean).forEach(x=>m.set(x,(m.get(x)||0)+1)); let best=null,bc=0; m.forEach((v,k)=>{ if(v>bc){bc=v;best=k;} }); return best; }
 function cohortColor(c){ if(!c)return '#94a3b8'; let h=0; for(let i=0;i<c.length;i++)h=(h*31+c.charCodeAt(i))%360; return `hsl(${h},58%,55%)`; }
 const MAP_STATUS_COLOR={healthy:'#22c55e',diseased:'#f59e0b',sacrificed:'#94a3b8',dead:'#6b7280',transferred:'#3b82f6',collected:'#a855f7',unknown:'#cbd5e1'};
@@ -2596,8 +2600,8 @@ function renderMapRoom(rows){ const host=$('mapHost'); const {fac,room}=MAP_NAV;
     const placed=ms.filter(mapHasLoc).length;
     return `<div class="maproomcard" onclick="mapGo('rack','${esc(fac)}','${esc(room)}','${esc(rk)}')">
       <div class="rm">🗄 Rack ${esc(rk)}</div>
-      <div class="st">${ms.length} mice · ${placed} placed${placed<ms.length?` · <span style="color:var(--amber)">${ms.length-placed} to place</span>`:''}</div>
-      <div class="mapfill"><span style="width:${ms.length?Math.round(100*placed/ms.length):0}%"></span></div></div>`; }).join('');
+      <div class="st">${ms.length} mice${placed<ms.length?` · <span style="color:var(--amber)">${ms.length-placed} need a spot</span>`:' · all located'}</div>
+      <div class="mapfill" title="share of these mice that have a location on the rack (not how physically full the rack is)"><span style="width:${ms.length?Math.round(100*placed/ms.length):0}%"></span></div></div>`; }).join('');
   host.innerHTML=mapCrumb()+`<div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:12px">${inRoom.length} mice in ${racks.size} rack(s). Click a rack to open its grid.</div>
     <div class="maproomcards">${tiles||'<div class="empty">No mice here.</div>'}</div>`; }
 
@@ -2639,9 +2643,9 @@ function renderMapRack(rows){ const host=$('mapHost'); const {fac,room,rack}=MAP
     <div class="mapblocks">${[...rangeGroups.entries()].map(([gk,g])=>{ const cohort=mapMostCommon(g.ms.map(m=>m.cohort))||'—'; const color=cohortColor(cohort);
       return `<div class="mapblock" data-range="${esc(gk)}" style="border-left-color:${color}"><span class="sw" style="background:${color}"></span><b>${esc(cohort)}</b> <span class="sub" style="color:var(--muted)">${esc(rangeLabel(g))} · ${g.ms.length} mice</span></div>`; }).join('')}</div>`:'';
   const trayHtml = tray.length?`<div class="section-h" style="margin-top:16px">Unplaceable · ${tray.length} <span class="sub" style="color:var(--muted);font-weight:400;font-size:12px">— col/row missing or unrecognized. Drag one onto a cell to place it, or fix via Colony → Batch → Move.</span></div>
-    <div class="maptray">${tray.map(m=>`<span class="traychip maprow" data-id="${esc(m.id)}" title="${esc(m.cohort||'')}">${esc(m.tag_id||'(pending)')} <span style="color:var(--muted)">${esc(m.rack_col||'?')}/${esc(m.rack_row||'?')}</span></span>`).join('')}</div>`:'';
-  const hint=`<div class="sub" style="color:var(--muted);font-size:11px;margin-bottom:8px">✥ Drag a whole cage — or open a cage/block and drag an individual mouse — onto a cell to move it. You’ll confirm first.${isMgr()?'':' You can only move mice you own.'}</div>`;
-  host.innerHTML=mapCrumb()+toolbar+hint+`<div class="rackwrap">${sideHtml(RACK_TPL.sides[0],'Front · A–G')}${sideHtml(RACK_TPL.sides[1],'Back · H–N')}</div>${legend}${blocksHtml}${trayHtml}<div id="mapCellPanel" style="margin-top:18px"></div>`;
+    <div class="maptray">${tray.map(m=>`<span class="traychip maprow" data-id="${esc(m.id)}" title="${esc(m.cohort||'')}">${esc(mouseLabel(m))} <span style="color:var(--muted)">${esc(m.rack_col||'?')}/${esc(m.rack_row||'?')}</span></span>`).join('')}</div>`:'';
+  const hint=`<div class="sub" style="color:var(--muted);font-size:11px;margin-bottom:8px">✥ Click a cage or block to see its mice below the toolbar. Drag a whole cage — or open one and drag an individual mouse — onto a cell to move it (confirm first).${isMgr()?'':' You can only move mice you own.'}</div>`;
+  host.innerHTML=mapCrumb()+toolbar+hint+`<div id="mapCellPanel" class="mapcellpanel"></div><div class="rackwrap">${sideHtml(RACK_TPL.sides[0],'Front · A–G')}${sideHtml(RACK_TPL.sides[1],'Back · H–N')}</div>${legend}${blocksHtml}${trayHtml}`;
   // precise cages: click to view; drag the whole cage (if you may)
   host.querySelectorAll('.mcell.occ').forEach(td=>{ const key=td.dataset.cell, ms=cells.get(key)||[];
     td.onclick=()=>mapShowCell(`Cage @ Rack ${esc(rack)} · ${esc(key)}`, ms);
@@ -2655,7 +2659,7 @@ function renderMapRack(rows){ const host=$('mapHost'); const {fac,room,rack}=MAP
   // tray chips: drag to place (if you may)
   host.querySelectorAll('.traychip').forEach(chip=>{ const m=(MAP_ROWS||[]).find(x=>x.id===chip.dataset.id);
     if(m&&mapCanMove([m])){ chip.setAttribute('draggable','true');
-      chip.ondragstart=e=>{ MAP_DRAG={ids:[chip.dataset.id],from:'tray',label:`mouse ${m.tag_id||'(pending)'}`}; e.dataTransfer.effectAllowed='move'; try{e.dataTransfer.setData('text/plain',chip.dataset.id);}catch(_){} };
+      chip.ondragstart=e=>{ MAP_DRAG={ids:[chip.dataset.id],from:'tray',label:`mouse ${mouseLabel(m)}`}; e.dataTransfer.effectAllowed='move'; try{e.dataTransfer.setData('text/plain',chip.dataset.id);}catch(_){} };
       chip.ondragend=mapClearDrop; } });
   // every cell is a drop target — confirm before writing
   host.querySelectorAll('.mcell').forEach(td=>{
@@ -2687,7 +2691,7 @@ function mapShowCell(title, ms){ const p=$('mapCellPanel'); if(!p)return;
       <tr class="maprow" data-id="${esc(m.id)}" style="cursor:pointer"><td><b>${esc(m.tag_id||'(pending)')}</b></td><td>${esc(m.sex||'')}</td><td class="cohort">${esc(m.cohort||'')}</td><td>${esc(m.genotype_label||'')}</td><td style="white-space:nowrap">${m.age_months!=null?(m.dob_estimated?'~':'')+m.age_months+' mo':'—'}</td><td><span class="badge b-${esc(m.status)}">${esc(m.status)}</span></td></tr>`).join('')}</tbody></table></div>`;
   p.querySelectorAll('.maprow').forEach(tr=>{ const m=ms.find(x=>x.id===tr.dataset.id); tr.onclick=()=>openDetail(tr.dataset.id);
     if(m&&mapCanMove([m])){ tr.setAttribute('draggable','true'); tr.classList.add('movable');
-      tr.ondragstart=e=>{ MAP_DRAG={ids:[m.id],from:'panel',label:`mouse ${m.tag_id||'(pending)'}`}; e.dataTransfer.effectAllowed='move'; try{e.dataTransfer.setData('text/plain',m.id);}catch(_){} };
+      tr.ondragstart=e=>{ MAP_DRAG={ids:[m.id],from:'panel',label:`mouse ${mouseLabel(m)}`}; e.dataTransfer.effectAllowed='move'; try{e.dataTransfer.setData('text/plain',m.id);}catch(_){} };
       tr.ondragend=mapClearDrop; } });
   p.scrollIntoView({behavior:'smooth',block:'nearest'}); }
 
@@ -2707,17 +2711,17 @@ function renderMapEBS(inRoom){ const host=$('mapHost');
   const inCage=n=>inRoom.filter(m=>String(m.cage||'').trim()===String(n)); // home cage # lives in `cage` (1–4); legacy junk (cage 0) → "Other", drag to assign
   const claimed=new Set([1,2,3,4].flatMap(n=>inCage(n).map(m=>m.id)));
   const other=inRoom.filter(m=>!claimed.has(m.id));
-  const mouseRow=m=>`<div class="ebsm maprow" data-id="${esc(m.id)}"><b>${esc(m.tag_id||'(pending)')}</b> <span class="sub" style="color:var(--muted)">${esc(m.sex||'')}${m.cohort?' · '+esc(m.cohort):''}</span></div>`;
+  const mouseRow=m=>`<div class="ebsm maprow" data-id="${esc(m.id)}">${esc(mouseLabel(m))}</div>`;
   const cageBox=n=>{ const ms=inCage(n); return `<div class="ebscage" data-cage="${n}"><div class="sidelabel">🏠 Home cage ${n} <span style="color:var(--muted);font-weight:400">· ${ms.length}</span></div>${ms.length?ms.map(mouseRow).join(''):'<div class="sub" style="color:var(--muted);font-size:12px;padding-top:4px">empty — drop a mouse here</div>'}</div>`; };
   const otherHtml=other.length?`<div class="section-h" style="margin-top:16px">Other EBS mice · ${other.length} <span class="sub" style="color:var(--muted);font-weight:400;font-size:12px">— not in a home cage (1–4). Drag one into a cage.</span></div>
-    <div class="maptray">${other.map(m=>`<span class="traychip maprow" data-id="${esc(m.id)}">${esc(m.tag_id||'(pending)')} <span style="color:var(--muted)">${esc(m.cohort||'')}</span></span>`).join('')}</div>`:'';
+    <div class="maptray">${other.map(m=>`<span class="traychip maprow" data-id="${esc(m.id)}" title="${esc(m.genotype_label||'')}">${esc(mouseLabel(m))}</span>`).join('')}</div>`:'';
   host.innerHTML=mapCrumb()+`<div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:4px">EBS 58 — 4 specialized home cages.</div>
     <div class="sub" style="color:var(--muted);font-size:11px;margin-bottom:12px">✥ Drag a mouse into a home cage to move it — you’ll confirm first.${isMgr()?'':' You can only move mice you own.'}</div>
     <div class="ebswrap">${[1,2,3,4].map(cageBox).join('')}</div>${otherHtml}`;
   // draggable mice (owner-gated), still clickable for detail
   host.querySelectorAll('.maprow').forEach(el=>{ const m=inRoom.find(x=>x.id===el.dataset.id); el.onclick=()=>openDetail(el.dataset.id);
     if(m&&mapCanMove([m])){ el.setAttribute('draggable','true'); el.classList.add('movable');
-      el.ondragstart=e=>{ MAP_DRAG={ids:[el.dataset.id],from:'ebs',label:`mouse ${m.tag_id||'(pending)'}`}; e.dataTransfer.effectAllowed='move'; try{e.dataTransfer.setData('text/plain',el.dataset.id);}catch(_){} };
+      el.ondragstart=e=>{ MAP_DRAG={ids:[el.dataset.id],from:'ebs',label:`mouse ${mouseLabel(m)}`}; e.dataTransfer.effectAllowed='move'; try{e.dataTransfer.setData('text/plain',el.dataset.id);}catch(_){} };
       el.ondragend=()=>{ MAP_DRAG=null; host.querySelectorAll('.ebscage.drop').forEach(x=>x.classList.remove('drop')); }; } });
   // home-cage boxes are drop targets — confirm before writing
   host.querySelectorAll('.ebscage').forEach(box=>{ const n=box.dataset.cage;
