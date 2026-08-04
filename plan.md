@@ -200,7 +200,7 @@ No destructive changes — cleanup is done through the existing owner-scoped edi
 | **0. Audit & cleanup hooks** | Unplaced/imprecise trays + counts; reuse Batch-Move to place mice | uses existing | none |
 | **1. 2D rack view (read-only)** | Pick facility→room→rack → two-sided col×row grid, cells colored by cohort/status, click → mice | no | none |
 | **2. Room + find** | Room = rack tiles w/ fill %, facility landing, "find this mouse/cohort on the map" highlight, legend + color-by toggle | no | none |
-| **3. Edit on the map** | Drag a cage to an empty cell; place unplaced mice; relocate — all via existing `batchMove`, owner-scoped + audited | yes (reuses writer) | none |
+| **3. Edit on the map** ✅ *shipped* | Drag a cage onto a cell to move it (**confirm before write**); drag a "to place" chip onto a cell to place it — owner-scoped + audited (`MAP_MOVE`) | yes | none |
 | **4. 3D room (stretch)** | Optional walk-in view (CSS-3D first, Three.js only if warranted) | no | none |
 
 Recommended first slice to build after sign-off: **Phase 1 for one rack** (SAF 40 /
