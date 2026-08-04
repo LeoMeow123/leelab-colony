@@ -2616,17 +2616,24 @@ function renderMapRack(rows){ const host=$('mapHost'); const {fac,room,rack}=MAP
     else { const k=(r.rack_col||'')+'¦'+(r.rack_row||''); if(!rangeGroups.has(k))rangeGroups.set(k,{cols:cs,rows:rs,ms:[]}); rangeGroups.get(k).ms.push(r); } });
   const coverage=new Map();     // cell -> range groupKey (only cells with no precise cage)
   for(const [gk,g] of rangeGroups){ g.cols.forEach(c=>g.rows.forEach(rw=>{ const k=c+rw; if(!cells.has(k)&&!coverage.has(k)) coverage.set(k,gk); })); }
+  const blockSummary=g=>{ const cohort=mapMostCommon(g.ms.map(m=>m.cohort))||'—';
+    const ages=g.ms.map(m=>m.age_months).filter(a=>a!=null); let ageStr='';
+    if(ages.length){ const mn=Math.min(...ages),mx=Math.max(...ages); ageStr=(mx-mn<=1)?(((mn+mx)/2).toFixed(1)+'mo'):(Math.round(mn)+'–'+Math.round(mx)+'mo'); }
+    const sex=['M','F','U'].map(s=>{ const c=g.ms.filter(m=>m.sex===s).length; return c?c+s:null; }).filter(Boolean).join('+');
+    return {cohort,ageStr,sex}; };
+  for(const g of rangeGroups.values()) g.s=blockSummary(g);   // precompute the shown summary once per block
   const rangeLabel=g=>`${g.cols[0]}–${g.cols[g.cols.length-1]} × rows ${g.rows[0]}–${g.rows[g.rows.length-1]}`;
-  const rangeTitle=g=>`${mapMostCommon(g.ms.map(m=>m.cohort))||'—'} block · ${rangeLabel(g)} · ${g.ms.length} mice`;
+  const rangeTitle=g=>`${g.s.cohort} · ${g.s.ageStr||'age n/a'}${g.s.sex?' · '+g.s.sex:''} · ${rangeLabel(g)} · ${g.ms.length} mice`;
   const cellHtml=(col,row)=>{ const key=col+row, ms=cells.get(key)||[];
     if(ms.length){ const breeding=ms.some(m=>m.breeding); const cohort=mapMostCommon(ms.map(m=>m.cohort))||'';
       const sex=['M','F','U'].map(s=>{ const c=ms.filter(m=>m.sex===s).length; return c?c+s.toLowerCase():null; }).filter(Boolean).join(' ');
       return `<td class="mcell occ${breeding?' breed':''}" style="--cc:${mapCellColor(ms)}" data-cell="${key}" data-col="${col}" data-row="${row}" title="${key} · ${esc(cohort)} · ${ms.length} mice">
         <div class="mccount">${ms.length}${breeding?'🔬':''}</div><div class="mcsub">${esc(cohort)}</div><div class="mcsub2">${esc(sex)}</div></td>`; }
     const gk=coverage.get(key);
-    if(gk){ const g=rangeGroups.get(gk); const cohort=mapMostCommon(g.ms.map(m=>m.cohort))||'';
-      const color=MAP_COLORBY==='status'?statusColor(mapMostCommon(g.ms.map(m=>m.status))):cohortColor(cohort);
-      return `<td class="mcell range" style="--cc:${color}" data-col="${col}" data-row="${row}" data-range="${esc(gk)}" title="${esc(cohort)} block · ${esc(rangeLabel(g))} · ${g.ms.length} mice"></td>`; }
+    if(gk){ const g=rangeGroups.get(gk), s=g.s;
+      const color=MAP_COLORBY==='status'?statusColor(mapMostCommon(g.ms.map(m=>m.status))):cohortColor(s.cohort);
+      return `<td class="mcell range" style="--cc:${color}" data-col="${col}" data-row="${row}" data-range="${esc(gk)}" title="${esc(s.cohort)} · ${esc(s.ageStr)} · ${esc(s.sex)} · ${g.ms.length} mice">
+        <div class="mcsub">${esc(s.cohort)}</div><div class="mcsub2">${esc(s.ageStr)}</div></td>`; }
     return `<td class="mcell empty" data-col="${col}" data-row="${row}"></td>`; };
   const sideHtml=(cols,label)=>`<div><div class="sidelabel">${label}</div><table class="rackgrid"><thead><tr><th></th>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>`+
     Array.from({length:RACK_TPL.rows},(_,i)=>{ const row=i+1; return `<tr><th>${row}</th>${cols.map(c=>cellHtml(c,String(row))).join('')}</tr>`; }).join('')+`</tbody></table></div>`;
@@ -2640,8 +2647,8 @@ function renderMapRack(rows){ const host=$('mapHost'); const {fac,room,rack}=MAP
     <span class="sub" style="color:var(--muted);font-size:12px;margin-left:8px">${inRack.length} mice · ${cells.size} cell(s)${rangeGroups.size?' · '+rangeGroups.size+' range block(s)':''}</span>
     <button class="btn sm" onclick="mapRefresh()" style="margin-left:auto">↻ Refresh</button></div>`;
   const blocksHtml = rangeGroups.size?`<div class="section-h" style="margin-top:16px">Cohort blocks (ranges) · ${rangeGroups.size} <span class="sub" style="color:var(--muted);font-weight:400;font-size:12px">— a striped area on the rack = this cohort fills that span. Click to open, then drag a mouse onto a cell to pin it precisely.</span></div>
-    <div class="mapblocks">${[...rangeGroups.entries()].map(([gk,g])=>{ const cohort=mapMostCommon(g.ms.map(m=>m.cohort))||'—'; const color=cohortColor(cohort);
-      return `<div class="mapblock" data-range="${esc(gk)}" style="border-left-color:${color}"><span class="sw" style="background:${color}"></span><b>${esc(cohort)}</b> <span class="sub" style="color:var(--muted)">${esc(rangeLabel(g))} · ${g.ms.length} mice</span></div>`; }).join('')}</div>`:'';
+    <div class="mapblocks">${[...rangeGroups.entries()].map(([gk,g])=>{ const s=g.s, color=cohortColor(s.cohort);
+      return `<div class="mapblock" data-range="${esc(gk)}" style="border-left-color:${color}"><span class="sw" style="background:${color}"></span><b>${esc(s.cohort)}</b> <span class="sub" style="color:var(--muted)">${s.ageStr?esc(s.ageStr)+' · ':''}${s.sex?esc(s.sex)+' · ':''}${esc(rangeLabel(g))} · ${g.ms.length} mice</span></div>`; }).join('')}</div>`:'';
   const trayHtml = tray.length?`<div class="section-h" style="margin-top:16px">Unplaceable · ${tray.length} <span class="sub" style="color:var(--muted);font-weight:400;font-size:12px">— col/row missing or unrecognized. Drag one onto a cell to place it, or fix via Colony → Batch → Move.</span></div>
     <div class="maptray">${tray.map(m=>`<span class="traychip maprow" data-id="${esc(m.id)}" title="${esc(m.cohort||'')}">${esc(mouseLabel(m))} <span style="color:var(--muted)">${esc(m.rack_col||'?')}/${esc(m.rack_row||'?')}</span></span>`).join('')}</div>`:'';
   const hint=`<div class="sub" style="color:var(--muted);font-size:11px;margin-bottom:8px">✥ Click a cage or block to see its mice below the toolbar. Drag a whole cage — or open one and drag an individual mouse — onto a cell to move it (confirm first).${isMgr()?'':' You can only move mice you own.'}</div>`;
