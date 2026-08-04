@@ -225,16 +225,24 @@
   .maplegend{display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-top:10px}
   .maplegend .lg{display:inline-flex;align-items:center;gap:4px}
   .maplegend .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
-  /* EBS = red-lit room, 4 tall transparent cages, camera module on top of each */
-  .ebsrack{display:flex;gap:16px;overflow-x:auto;padding:20px 16px 24px;background:linear-gradient(180deg,#6e1616 0%,#921d1d 55%,#6e1616 100%);border:1px solid #4a0f0f;border-radius:14px;box-shadow:inset 0 0 46px rgba(0,0,0,.4)}
-  .ebscage{flex:1;min-width:150px;min-height:330px;display:flex;flex-direction:column;color:#fff;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.38);border-radius:8px;padding:0;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.3)}
-  .ebscam{background:linear-gradient(#4c4c4c,#242424);display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 6px;font-size:12px;font-weight:700;color:#fff;border-bottom:1px solid rgba(0,0,0,.45)}
-  .ebscam .lens{width:9px;height:9px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#9db4ff,#0b1a4a);box-shadow:0 0 4px rgba(150,175,255,.9)}
-  .ebscam .camlbl{background:#fff;color:#1a1a1a;border-radius:3px;padding:1px 7px;letter-spacing:.5px}
-  .ebscam .camct{opacity:.85;font-weight:400}
-  .ebscagebody{flex:1;display:flex;flex-direction:column;gap:3px;padding:8px;overflow:auto}
-  .ebscage.drop{outline:2px dashed #fff;outline-offset:-3px;background:rgba(255,255,255,.24)}
-  .ebsm{padding:4px 2px;border-top:1px solid rgba(255,255,255,.22);font-size:13px}
+  /* EBS = 1x4 rack of transparent tall home cages, mice at the bottom, camera on top.
+     (The red in the reference photo was just the dark-cycle light — cages are clear.) */
+  .ebsrack{display:flex;gap:22px;overflow-x:auto;padding:18px 20px 26px;background:var(--bg2);border:1px solid var(--border);border-radius:14px}
+  .ebscage{flex:1;min-width:140px;max-width:200px;display:flex;flex-direction:column;align-items:center}
+  .ebscam{display:flex;align-items:center;justify-content:center;gap:5px;padding:5px 10px;font-size:11px;font-weight:700;color:#fff;background:linear-gradient(#4c4c4c,#232323);border-radius:6px;box-shadow:0 3px 7px rgba(0,0,0,.32);position:relative;z-index:2;margin-bottom:-3px}
+  .ebscam::after{content:'';position:absolute;bottom:-5px;left:50%;transform:translateX(-50%);width:8px;height:5px;background:#2b2b2b} /* mount connecting camera to cage */
+  .ebscam .lens{width:8px;height:8px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#9db4ff,#0b1a4a);box-shadow:0 0 4px rgba(150,175,255,.9)}
+  .ebscam .camlbl{background:#fff;color:#1a1a1a;border-radius:3px;padding:0 6px;letter-spacing:.5px}
+  .ebscam .camct{opacity:.8;font-weight:400}
+  .ebsbox{width:100%;min-height:320px;display:flex;flex-direction:column;justify-content:flex-end;position:relative;overflow:hidden;border:1px solid var(--border2);border-radius:5px 5px 9px 9px;
+    background:linear-gradient(165deg, rgba(150,190,220,.16), rgba(150,190,220,.05) 58%, rgba(200,180,150,.18) 100%);
+    box-shadow:inset -9px 0 18px rgba(0,0,0,.12), inset 7px 0 12px rgba(255,255,255,.14), inset 0 9px 14px rgba(255,255,255,.12), 0 14px 26px rgba(0,0,0,.20)}
+  .ebsbox::before{content:'';position:absolute;inset:0 0 auto 0;height:44%;background:linear-gradient(180deg, rgba(255,255,255,.16), transparent);pointer-events:none} /* glass reflection */
+  .ebsbox::after{content:'';position:absolute;left:0;right:0;bottom:0;height:14px;background:linear-gradient(180deg, rgba(200,180,150,.22), rgba(200,180,150,.42));pointer-events:none} /* bedding at the bottom */
+  .ebscagebody{position:relative;z-index:1;width:100%;display:flex;flex-direction:column;gap:3px;padding:8px 8px 16px;max-height:270px;overflow:auto}
+  .ebsempty{color:var(--muted);font-size:12px;text-align:center;margin:auto;padding:20px 4px}
+  .ebscage.drop .ebsbox{outline:2px dashed var(--accent);outline-offset:-3px}
+  .ebsm{padding:4px 2px;border-top:1px solid var(--border);font-size:13px}
 </style>
 <script>try{if(localStorage.getItem('mc:theme')==='dark')document.documentElement.dataset.theme='dark';}catch(e){}</script>
 </head>
@@ -2728,10 +2736,10 @@ function renderMapEBS(inRoom){ const host=$('mapHost');
   const camLabel=n=>'Cam'+String(n).padStart(2,'0');
   const cageBox=n=>{ const ms=inCage(n); return `<div class="ebscage" data-cage="${n}">
       <div class="ebscam" title="overhead camera — ${camLabel(n)}"><span class="lens"></span><span class="camlbl">${camLabel(n)}</span><span class="camct">· ${ms.length}</span></div>
-      <div class="ebscagebody">${ms.length?ms.map(mouseRow).join(''):'<div class="sub" style="color:rgba(255,255,255,.7);font-size:12px;text-align:center;margin:auto">empty —<br>drop a mouse here</div>'}</div></div>`; };
+      <div class="ebsbox"><div class="ebscagebody">${ms.length?ms.map(mouseRow).join(''):'<div class="ebsempty">empty —<br>drop a mouse here</div>'}</div></div></div>`; };
   const otherHtml=other.length?`<div class="section-h" style="margin-top:16px">Other EBS mice · ${other.length} <span class="sub" style="color:var(--muted);font-weight:400;font-size:12px">— not in a cage (1–4). Drag one into a cage.</span></div>
     <div class="maptray">${other.map(m=>`<span class="traychip maprow" data-id="${esc(m.id)}" title="${esc(m.genotype_label||'')}">${esc(mouseLabel(m))}</span>`).join('')}</div>`:'';
-  host.innerHTML=mapCrumb()+`<div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:4px">EBS 58 — 1×4 rack · cameras Cam01–Cam04.</div>
+  host.innerHTML=mapCrumb()+`<div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:4px">EBS 58 — 1×4 rack · transparent tall home cages, camera on top (Cam01–Cam04).</div>
     <div class="sub" style="color:var(--muted);font-size:11px;margin-bottom:12px">✥ Drag a mouse into a cage to move it — you’ll confirm first.${isMgr()?'':' You can only move mice you own.'}</div>
     <div class="ebsrack">${[1,2,3,4].map(cageBox).join('')}</div>${otherHtml}`;
   // draggable mice (owner-gated), still clickable for detail
