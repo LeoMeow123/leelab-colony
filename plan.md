@@ -107,8 +107,8 @@ Everything the map needs already exists on `mice`:
 3. **EBS:** not a rack — **4 specialized home cages**, rendered as 4 slots.
 
 **Still open (minor — do NOT block Phase 1):**
-4. **Cage card numbers** — does the lab give each cage its own card #, or is a cage just
-   its (col, row) cell? (Only affects a small label shown in the cell.)
+4. ~~Cage card numbers~~ ✅ **resolved:** don't show cage card # — many cages don't have
+   one. A cage is identified purely by its (col, row) cell.
 5. **Color cells by** genotype (cohort) or health status by default? (Easy toggle either way.)
 6. **Room floor plan** — do we know where each rack physically stands, or just which racks
    are in the room? (Rack picker to start; true floor map later if we get positions.)

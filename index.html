@@ -2593,8 +2593,7 @@ function renderMapRack(rows){ const host=$('mapHost'); const {fac,room,rack}=MAP
   const cellHtml=(col,row)=>{ const ms=cells.get(col+row)||[]; if(!ms.length) return `<td class="mcell empty" data-col="${col}" data-row="${row}"></td>`;
     const breeding=ms.some(m=>m.breeding); const cohort=mapMostCommon(ms.map(m=>m.cohort))||'';
     const sex=['M','F','U'].map(s=>{ const c=ms.filter(m=>m.sex===s).length; return c?c+s.toLowerCase():null; }).filter(Boolean).join(' ');
-    const cage=ms.map(m=>m.cage).find(Boolean)||'';
-    return `<td class="mcell occ${breeding?' breed':''}" style="--cc:${mapCellColor(ms)}" data-cell="${col}${row}" data-col="${col}" data-row="${row}" title="${col}${row} · ${esc(cohort)} · ${ms.length} mice${cage?' · cage '+esc(cage):''}">
+    return `<td class="mcell occ${breeding?' breed':''}" style="--cc:${mapCellColor(ms)}" data-cell="${col}${row}" data-col="${col}" data-row="${row}" title="${col}${row} · ${esc(cohort)} · ${ms.length} mice">
       <div class="mccount">${ms.length}${breeding?'🔬':''}</div><div class="mcsub">${esc(cohort)}</div><div class="mcsub2">${esc(sex)}</div></td>`; };
   const sideHtml=(cols,label)=>`<div><div class="sidelabel">${label}</div><table class="rackgrid"><thead><tr><th></th>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>`+
     Array.from({length:RACK_TPL.rows},(_,i)=>{ const row=i+1; return `<tr><th>${row}</th>${cols.map(c=>cellHtml(c,String(row))).join('')}</tr>`; }).join('')+`</tbody></table></div>`;
