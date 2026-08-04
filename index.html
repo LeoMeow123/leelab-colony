@@ -737,7 +737,7 @@ function switchTab(name){
   if(name==='requests') renderRequests();
   if(name==='needs') renderNeeds();
   if(name==='mine') renderMine();
-  if(name==='map') renderMap();
+  if(name==='map') renderMap(true); // always refetch on open so newly added/edited mice show up
   if(name==='myreq') renderMyReq();
   if(name==='graveyard') renderGraveyard();
   if(name==='guardians') renderGuardians();
@@ -2567,9 +2567,9 @@ function mapCrumb(){ const c=[`<a href="#" onclick="mapGo('rooms');return false"
   if(MAP_NAV.level==='rack') c.push(`<span>Rack ${esc(MAP_NAV.rack)}</span>`);
   return `<div class="mapcrumb">${c.join(' <span style="color:var(--muted)">›</span> ')}</div>`; }
 
-async function renderMap(){ const host=$('mapHost'); if(!host) return;
+async function renderMap(force){ const host=$('mapHost'); if(!host) return;
   host.innerHTML='<div class="sub" style="color:var(--muted)">Loading map…</div>';
-  let rows; try{ rows=await loadMapRows(); }catch(e){ host.innerHTML=`<div class="empty">Couldn’t load: ${esc(e.message)}</div>`; return; }
+  let rows; try{ rows=await loadMapRows(force); }catch(e){ host.innerHTML=`<div class="empty">Couldn’t load: ${esc(e.message)}</div>`; return; }
   if(MAP_NAV.level==='rack') return renderMapRack(rows);
   if(MAP_NAV.level==='room') return renderMapRoom(rows);
   renderMapRooms(rows); }
