@@ -29,8 +29,8 @@ This grounds the plan — some of it differs from first assumptions, so confirm 
 **Distinct `rack_row`:** `1 … 10` — **plus ranges** `1-5`, `1-10`, `2-3` and junk `-`, `D`.
 
 ### What this tells us
-1. **Real rooms are:** SAF 40, CRAF 157, CRAF 57, EBS 58. ⚠ CRAF 57 and 157 appear
-   as **separate** rooms, not one — confirm whether to merge them in the UI.
+1. **Rooms:** SAF 40, **CRAF (57 + 157 — same physical room, merged)** ✅, EBS 58. Rack
+   2909 appearing in both CRAF 57 and 157 confirms they're one space.
 2. **Rack ID is per-room, not global** (`2909` is in both CRAF rooms) → the map key
    is **(facility, room, rack)**.
 3. **Columns run A–N**, not just A–L — the template is bigger than first thought.
@@ -54,21 +54,24 @@ Facility (CRAF, SAF, EBS)
                     └── Mice
 ```
 
-- **CRAF and SAF share one rack template** (same physical size). **EBS differs**
-  (rack "A", only 10 mice) — treat as its own template.
+- **CRAF and SAF share one rack template** (same physical size). **EBS is not a rack**
+  (see below).
 - A **cage** is a cell; its contents are the mice whose `(facility, room, rack,
   rack_col, rack_row)` match that cell. The `cage` text field (card number) is
   optional metadata shown in the cell, not the position.
 
-### Proposed rack template (CRAF/SAF) — ⚠ confirm
-- **Two sides**, columns split evenly: **Front = A–G**, **Back = H–N** (7 + 7 = 14).
-  (First guess was A–G / H–L, but the data has M and N, so H–N is the likely upper bound.)
-- **Rows: 1–10** (first guess 9; data shows a `1-10` range — confirm 9 vs 10).
-- ⇒ up to **14 × 10 = 140** cell positions per rack (70 per side).
-- **EBS template:** unknown dimensions — confirm (rack "A" suggests a different scheme).
+### Rack template (CRAF/SAF) — ✅ confirmed 2026-08-04
+- **Two sides, symmetric.** **Front = A–G**, **Back = H–N** (7 columns each side, 14
+  total). Side 2 starts at H; both sides have the **same** column and row count.
+- **Rows: 1–9.** (Data confirms: standalone row values only reach 9; the stray `1-10` is
+  a coarse whole-rack range, not a 10th physical row.)
+- ⇒ **14 × 9 = 126** cells per rack (63 per side).
 
-We'll store the template as **editable config** (see §7), not hardcoded, so a wrong
-guess is a one-line fix, not a code change.
+### EBS — ✅ confirmed: not a rack
+EBS 58 holds **4 specialized home cages**. Render it as a flat set of **4 cage slots**,
+not a column×row grid.
+
+Both templates are stored as **editable config** (see §7) so any tweak stays a one-line change.
 
 ---
 
@@ -95,21 +98,21 @@ Everything the map needs already exists on `mice`:
 
 ---
 
-## 4. Assumptions & open questions (⚠ = blocks accuracy, please confirm)
+## 4. Geometry — confirmed, plus minor remaining questions
 
-1. ⚠ **Rooms:** SAF 40, CRAF 57, CRAF 157, EBS 58 — is that the full list? Merge CRAF
-   57 + 157 into one view, or keep separate (data says separate)?
-2. ⚠ **Rack template (CRAF/SAF):** columns A–G front / H–N back? Rows 1–9 or 1–10?
-3. ⚠ **EBS rack:** what does it look like (dimensions, is "A" a rack or a column)?
-4. **Does the lab number cages** with their own card number, or is a cage identified
-   purely by its (col, row) cell? (Decides whether the `cage` field matters on the map.)
-5. **Two sides** — do you physically read a rack as Front (A–G) / Back (H–N), and do
-   the row numbers repeat 1–10 on each side? (Data suggests yes.)
-6. **2D vs 3D priority** — start with 2D grid (recommended), 3D as a later "walk-in"?
-7. **Color the cells by** genotype (cohort) or by health status by default?
-8. **Room floor plan:** do we know where each rack physically stands in the room, or
-   just *which* racks are in it? (Decides whether the room view is a true floor map or
-   a rack picker — see §5.)
+**✅ Confirmed 2026-08-04:**
+1. **Rooms:** SAF 40, **CRAF (57 + 157 merged — same room)**, EBS 58.
+2. **CRAF/SAF rack:** two symmetric sides — **Front A–G / Back H–N** (7 cols each),
+   **rows 1–9** → **126 cells**.
+3. **EBS:** not a rack — **4 specialized home cages**, rendered as 4 slots.
+
+**Still open (minor — do NOT block Phase 1):**
+4. **Cage card numbers** — does the lab give each cage its own card #, or is a cage just
+   its (col, row) cell? (Only affects a small label shown in the cell.)
+5. **Color cells by** genotype (cohort) or health status by default? (Easy toggle either way.)
+6. **Room floor plan** — do we know where each rack physically stands, or just which racks
+   are in the room? (Rack picker to start; true floor map later if we get positions.)
+7. **3D** — defer until 2D is in daily use? (Recommended.)
 
 ---
 
@@ -141,8 +144,8 @@ Mobile: grids scroll/pinch-zoom; the two sides stack vertically.
 
 ## 6. Rendering approach
 
-- **2D (Phase 1–3): SVG or CSS grid, no dependencies.** A rack is ≤ 140 cells × 2 sides
-  ≈ 280 nodes — trivial to render and re-render. Fits the single-file, no-build, GitHub
+- **2D (Phase 1–3): SVG or CSS grid, no dependencies.** A rack is 126 cells (2 sides ×
+  7 × 9) — trivial to render and re-render. Fits the single-file, no-build, GitHub
   Pages model perfectly. Recommended.
 - **3D (Phase 4, optional/stretch):** a "walk into the room" view.
   - Lightweight option: **CSS 3D transforms** for a pseudo-3D room (cheap, no deps).
@@ -159,8 +162,8 @@ Add one `app_config` row so dimensions aren't hardcoded:
 ```json
 // key: "rack_template"
 {
-  "default": { "sides": [["A","B","C","D","E","F","G"], ["H","I","J","K","L","M","N"]], "rows": 10 },
-  "EBS":     { "sides": [["A"]], "rows": 10 }   // placeholder until confirmed
+  "default": { "sides": [["A","B","C","D","E","F","G"], ["H","I","J","K","L","M","N"]], "rows": 9 },
+  "EBS":     { "kind": "homecages", "count": 4 }
 }
 ```
 
@@ -220,9 +223,11 @@ generalize.
 
 ---
 
-## 11. Open decisions to unblock (summary)
+## 11. Status
 
-Please confirm the ⚠ items in §4 — especially: **(a)** the CRAF/SAF rack template
-(columns A–G / H–N? rows 9 or 10?), **(b)** whether CRAF 57 & 157 are one room or two,
-and **(c)** what EBS's rack looks like. With those three, Phase 1 can be built against
-the real geometry instead of a guess.
+Geometry is **confirmed** (§4): CRAF/SAF = A–G / H–N × rows 1–9 (126 cells); CRAF 57+157
+merged into one room; EBS = 4 home cages. Phase 1 can be built against the real layout;
+the remaining questions (§4.4–4.7) are cosmetic and don't block the first slice.
+
+**Next:** build **Phase 1** — the read-only 2D rack grid — starting with **SAF 40 / rack
+3371** (227 mice, densest), then the other racks + the EBS home-cage view.

@@ -186,6 +186,37 @@
   .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:9px 16px;z-index:100;font-size:13px;opacity:0;transition:opacity .2s}
   .toast.show{opacity:1}
   .reqremind{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:rgba(59,130,246,.10);border:1px solid var(--accent);border-radius:10px;padding:9px 14px;margin-bottom:12px;font-size:13px}
+  /* ---- room / rack map ---- */
+  .mapcrumb{font-size:13px;margin-bottom:12px}
+  .mapcrumb a{color:var(--accent);text-decoration:none}
+  .maptoolbar{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+  .maproomcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
+  .maproomcard{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px;cursor:pointer;box-shadow:var(--shadow);transition:transform .12s,box-shadow .12s}
+  .maproomcard:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.14)}
+  .maproomcard .rm{font-weight:700;font-size:16px}
+  .maproomcard .st{font-size:12px;color:var(--muted);margin-top:6px}
+  .mapfill{height:6px;border-radius:4px;background:var(--bg3);margin-top:10px;overflow:hidden}
+  .mapfill>span{display:block;height:100%;background:var(--accent)}
+  .rackwrap{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start;overflow:auto}
+  .sidelabel{font-size:12px;color:var(--muted);font-weight:700;margin-bottom:5px}
+  .rackgrid{border-collapse:separate;border-spacing:3px}
+  .rackgrid th{font-size:11px;color:var(--muted);font-weight:600;width:22px;height:22px;text-align:center}
+  .mcell{width:46px;height:46px;border-radius:6px;border:1px solid var(--border);vertical-align:middle;text-align:center;padding:0;overflow:hidden}
+  .mcell.empty{background:var(--bg2);opacity:.45}
+  .mcell.occ{cursor:pointer;background:color-mix(in srgb, var(--cc) 30%, transparent);border-color:var(--cc)}
+  .mcell.occ:hover{background:color-mix(in srgb, var(--cc) 55%, transparent)}
+  .mcell.occ.breed{outline:2px solid var(--purple);outline-offset:-2px}
+  .mccount{font-size:13px;font-weight:700;line-height:1.05}
+  .mcsub{font-size:9px;color:var(--text);line-height:1.05;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 2px}
+  .mcsub2{font-size:9px;color:var(--muted);line-height:1.05}
+  .maptray{display:flex;flex-wrap:wrap;gap:6px}
+  .traychip{font-size:12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:3px 8px;cursor:pointer}
+  .maplegend{display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-top:10px}
+  .maplegend .lg{display:inline-flex;align-items:center;gap:4px}
+  .maplegend .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+  .ebswrap{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}
+  .ebscage{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:12px}
+  .ebsm{padding:4px 0;border-top:1px solid var(--border);font-size:13px}
 </style>
 <script>try{if(localStorage.getItem('mc:theme')==='dark')document.documentElement.dataset.theme='dark';}catch(e){}</script>
 </head>
@@ -235,6 +266,7 @@
     <div class="tabs">
       <button class="tab active" data-tab="colony">Colony</button>
       <button class="tab" data-tab="mine">My colony</button>
+      <button class="tab" data-tab="map">🗺 Map</button>
       <button class="tab" data-tab="add">＋ Add cohort</button>
       <button class="tab" data-tab="import">Import</button>
       <button class="tab" data-tab="requests">Requests</button>
@@ -289,6 +321,15 @@
       <div class="pager"><span id="pageInfo"></span><button class="btn sm" id="prev">‹ Prev</button><button class="btn sm" id="next">Next ›</button></div>
     </div>
     <div id="breedingBox" style="margin-top:16px"></div>
+  </div>
+
+  <!-- MAP (virtual room / rack layout) -->
+  <div class="wrap hidden" id="tab-map">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px">
+      <div><h1 style="font-size:17px;margin:0">🗺 Room map <span class="sub" style="color:var(--muted);font-weight:400;font-size:12px">— prototype</span></h1>
+      <div class="sub" style="color:var(--muted);font-size:12px">Enter a room → open a rack → see which mice are in each cage. Click a cage for its mice.</div></div>
+    </div>
+    <div id="mapHost"></div>
   </div>
 
   <!-- MY COLONY -->
@@ -679,11 +720,12 @@ $('logout').onclick=()=>{ localStorage.removeItem('mc:user'); localStorage.remov
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>switchTab(t.dataset.tab));
 function switchTab(name){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
-  ['colony','mine','add','import','people','requests','needs','myreq','graveyard','guardians'].forEach(n=>$('tab-'+n).classList.toggle('hidden',n!==name));
+  ['colony','mine','map','add','import','people','requests','needs','myreq','graveyard','guardians'].forEach(n=>$('tab-'+n).classList.toggle('hidden',n!==name));
   if(name==='people') renderPeople();
   if(name==='requests') renderRequests();
   if(name==='needs') renderNeeds();
   if(name==='mine') renderMine();
+  if(name==='map') renderMap();
   if(name==='myreq') renderMyReq();
   if(name==='graveyard') renderGraveyard();
   if(name==='guardians') renderGuardians();
@@ -2473,6 +2515,115 @@ window.__greet={
   }
 };
 $('greetOverlay').addEventListener('mousedown',e=>{ if(e.target===$('greetOverlay')) $('greetOverlay').classList.remove('open'); });
+
+// ================= Room / rack map (Phase 1 prototype) =================
+// CRAF/SAF rack: two symmetric sides (Front A–G / Back H–N), rows 1–9 → 126 cells.
+// CRAF 57 + 157 are one physical room (merged). EBS = 4 specialized home cages.
+const RACK_TPL={ sides:[['A','B','C','D','E','F','G'],['H','I','J','K','L','M','N']], rows:9 };
+let MAP_ROWS=null, MAP_NAV={level:'rooms'}, MAP_COLORBY='cohort';
+const normRoom=(fac,room)=> fac==='CRAF' ? '57/157' : (room||'—');
+const mapSingleCol=v=>/^[A-N]$/.test(String(v||'').trim().toUpperCase());
+const mapSingleRow=v=>/^[1-9]$/.test(String(v||'').trim());
+const mapPlaced=r=>mapSingleCol(r.rack_col)&&mapSingleRow(r.rack_row);
+function mapMostCommon(arr){ const m=new Map(); arr.filter(Boolean).forEach(x=>m.set(x,(m.get(x)||0)+1)); let best=null,bc=0; m.forEach((v,k)=>{ if(v>bc){bc=v;best=k;} }); return best; }
+function cohortColor(c){ if(!c)return '#94a3b8'; let h=0; for(let i=0;i<c.length;i++)h=(h*31+c.charCodeAt(i))%360; return `hsl(${h},58%,55%)`; }
+const MAP_STATUS_COLOR={healthy:'#22c55e',diseased:'#f59e0b',sacrificed:'#94a3b8',dead:'#6b7280',transferred:'#3b82f6',collected:'#a855f7',unknown:'#cbd5e1'};
+const statusColor=s=>MAP_STATUS_COLOR[s]||'#cbd5e1';
+const mapCellColor=ms=> MAP_COLORBY==='status' ? statusColor(mapMostCommon(ms.map(m=>m.status))) : cohortColor(mapMostCommon(ms.map(m=>m.cohort)));
+
+async function loadMapRows(force){ if(MAP_ROWS&&!force) return MAP_ROWS;
+  const sel='id,tag_id,sex,cohort,genotype_label,status,facility,room,rack,rack_col,rack_row,cage,current_location,owner_name,dob_estimated,age_months'+(HAS_BREEDING?',breeding':'');
+  let rows=[]; for(let from=0;;from+=1000){ const r=await api(`mouse_v?select=${sel}&order=facility.asc&limit=1000&offset=${from}`); const b=r.data||[]; rows=rows.concat(b); if(b.length<1000)break; }
+  MAP_ROWS=rows; return rows; }
+window.mapGo=(level,fac,room,rack)=>{ MAP_NAV = level==='rooms'?{level:'rooms'} : (level==='room'?{level:'room',fac,room} : {level:'rack',fac,room,rack}); renderMap(); };
+window.mapColorBy=v=>{ MAP_COLORBY=v; renderMap(); };
+window.mapRefresh=async()=>{ try{ await loadMapRows(true); }catch(_){} renderMap(); };
+function mapCrumb(){ const c=[`<a href="#" onclick="mapGo('rooms');return false">Rooms</a>`];
+  if(MAP_NAV.level!=='rooms') c.push(`<a href="#" onclick="mapGo('room','${esc(MAP_NAV.fac)}','${esc(MAP_NAV.room)}');return false">${esc(MAP_NAV.fac)} ${esc(MAP_NAV.room)}</a>`);
+  if(MAP_NAV.level==='rack') c.push(`<span>Rack ${esc(MAP_NAV.rack)}</span>`);
+  return `<div class="mapcrumb">${c.join(' <span style="color:var(--muted)">›</span> ')}</div>`; }
+
+async function renderMap(){ const host=$('mapHost'); if(!host) return;
+  host.innerHTML='<div class="sub" style="color:var(--muted)">Loading map…</div>';
+  let rows; try{ rows=await loadMapRows(); }catch(e){ host.innerHTML=`<div class="empty">Couldn’t load: ${esc(e.message)}</div>`; return; }
+  if(MAP_NAV.level==='rack') return renderMapRack(rows);
+  if(MAP_NAV.level==='room') return renderMapRoom(rows);
+  renderMapRooms(rows); }
+
+function renderMapRooms(rows){ const host=$('mapHost');
+  const places=new Map(); let unplaced=0;
+  rows.forEach(r=>{ if(!r.facility){ unplaced++; return; }
+    const k=r.facility+'¦'+normRoom(r.facility,r.room);
+    if(!places.has(k)) places.set(k,{fac:r.facility,room:normRoom(r.facility,r.room),mice:0,racks:new Set()});
+    const p=places.get(k); p.mice++; if(r.rack) p.racks.add(r.rack); });
+  const cards=[...places.values()].sort((a,b)=>b.mice-a.mice).map(p=>`
+    <div class="maproomcard" onclick="mapGo('room','${esc(p.fac)}','${esc(p.room)}')">
+      <div class="rm">${esc(p.fac)} ${esc(p.room)}</div>
+      <div class="st">${p.mice} mice · ${p.fac==='EBS'?'4 home cages':(p.racks.size+' rack'+(p.racks.size===1?'':'s'))}</div>
+      <div class="mapfill"><span style="width:${Math.min(100,Math.round(100*p.mice/rows.length))}%"></span></div>
+    </div>`).join('');
+  const unpl = unplaced?`<div class="maproomcard" style="border-style:dashed" onclick="mapGo('room','—','—')">
+      <div class="rm">📦 Unplaced</div><div class="st">${unplaced} mice with no location</div></div>`:'';
+  host.innerHTML=`<div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:12px">${rows.length} mice across ${places.size} room(s). Click a room to open it.</div>
+    <div class="maproomcards">${cards}${unpl}</div>`; }
+
+function renderMapRoom(rows){ const host=$('mapHost'); const {fac,room}=MAP_NAV;
+  const inRoom = (fac==='—') ? rows.filter(r=>!r.facility) : rows.filter(r=>r.facility===fac && normRoom(r.facility,r.room)===room);
+  if(fac==='EBS') return renderMapEBS(inRoom);
+  const racks=new Map();
+  inRoom.forEach(r=>{ const rk=r.rack||'(no rack)'; if(!racks.has(rk))racks.set(rk,[]); racks.get(rk).push(r); });
+  const tiles=[...racks.entries()].sort((a,b)=>b[1].length-a[1].length).map(([rk,ms])=>{
+    const placed=ms.filter(mapPlaced).length;
+    return `<div class="maproomcard" onclick="mapGo('rack','${esc(fac)}','${esc(room)}','${esc(rk)}')">
+      <div class="rm">🗄 Rack ${esc(rk)}</div>
+      <div class="st">${ms.length} mice · ${placed} placed${placed<ms.length?` · <span style="color:var(--amber)">${ms.length-placed} to place</span>`:''}</div>
+      <div class="mapfill"><span style="width:${ms.length?Math.round(100*placed/ms.length):0}%"></span></div></div>`; }).join('');
+  host.innerHTML=mapCrumb()+`<div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:12px">${inRoom.length} mice in ${racks.size} rack(s). Click a rack to open its grid.</div>
+    <div class="maproomcards">${tiles||'<div class="empty">No mice here.</div>'}</div>`; }
+
+function renderMapRack(rows){ const host=$('mapHost'); const {fac,room,rack}=MAP_NAV;
+  const inRack=rows.filter(r=>r.facility===fac && normRoom(r.facility,r.room)===room && (r.rack||'(no rack)')===rack);
+  const cells=new Map(), tray=[];
+  inRack.forEach(r=>{ if(mapPlaced(r)){ const k=String(r.rack_col).toUpperCase()+String(r.rack_row).trim(); if(!cells.has(k))cells.set(k,[]); cells.get(k).push(r); } else tray.push(r); });
+  const cellHtml=(col,row)=>{ const ms=cells.get(col+row)||[]; if(!ms.length) return `<td class="mcell empty"></td>`;
+    const breeding=ms.some(m=>m.breeding); const cohort=mapMostCommon(ms.map(m=>m.cohort))||'';
+    const sex=['M','F','U'].map(s=>{ const c=ms.filter(m=>m.sex===s).length; return c?c+s.toLowerCase():null; }).filter(Boolean).join(' ');
+    const cage=ms.map(m=>m.cage).find(Boolean)||'';
+    return `<td class="mcell occ${breeding?' breed':''}" style="--cc:${mapCellColor(ms)}" data-cell="${col}${row}" title="${col}${row} · ${esc(cohort)} · ${ms.length} mice${cage?' · cage '+esc(cage):''}">
+      <div class="mccount">${ms.length}${breeding?'🔬':''}</div><div class="mcsub">${esc(cohort)}</div><div class="mcsub2">${esc(sex)}</div></td>`; };
+  const sideHtml=(cols,label)=>`<div><div class="sidelabel">${label}</div><table class="rackgrid"><thead><tr><th></th>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>`+
+    Array.from({length:RACK_TPL.rows},(_,i)=>{ const row=i+1; return `<tr><th>${row}</th>${cols.map(c=>cellHtml(c,String(row))).join('')}</tr>`; }).join('')+`</tbody></table></div>`;
+  const legend=(()=>{ let items;
+    if(MAP_COLORBY==='status'){ items=[...new Set(inRack.map(m=>m.status))].filter(Boolean).map(s=>[s,statusColor(s)]); }
+    else { items=[...new Set(inRack.map(m=>m.cohort))].filter(Boolean).map(c=>[c,cohortColor(c)]); }
+    return items.length?`<div class="maplegend">${items.map(([l,c])=>`<span class="lg"><span class="sw" style="background:${c}"></span>${esc(l)}</span>`).join('')}</div>`:''; })();
+  const toolbar=`<div class="maptoolbar"><span class="sub" style="color:var(--muted);font-size:12px">Color by</span>
+    <button class="btn sm${MAP_COLORBY==='cohort'?' active':''}" onclick="mapColorBy('cohort')">Genotype</button>
+    <button class="btn sm${MAP_COLORBY==='status'?' active':''}" onclick="mapColorBy('status')">Status</button>
+    <span class="sub" style="color:var(--muted);font-size:12px;margin-left:8px">${inRack.length} mice · ${cells.size} occupied cell(s)</span>
+    <button class="btn sm" onclick="mapRefresh()" style="margin-left:auto">↻ Refresh</button></div>`;
+  const trayHtml = tray.length?`<div class="section-h" style="margin-top:18px">To place · ${tray.length} <span class="sub" style="color:var(--muted);font-weight:400;font-size:12px">— no single col/row yet (e.g. a whole-rack range). Place via Colony → select → Batch → Move / location.</span></div>
+    <div class="maptray">${tray.map(m=>`<span class="traychip maprow" data-id="${esc(m.id)}" title="${esc(m.cohort||'')}">${esc(m.tag_id||'(pending)')} <span style="color:var(--muted)">${esc(m.rack_col||'?')}/${esc(m.rack_row||'?')}</span></span>`).join('')}</div>`:'';
+  host.innerHTML=mapCrumb()+toolbar+`<div class="rackwrap">${sideHtml(RACK_TPL.sides[0],'Front · A–G')}${sideHtml(RACK_TPL.sides[1],'Back · H–N')}</div>${legend}${trayHtml}<div id="mapCellPanel" style="margin-top:18px"></div>`;
+  host.querySelectorAll('.mcell.occ').forEach(td=>td.onclick=()=>mapShowCell(rack,td.dataset.cell,cells.get(td.dataset.cell)||[]));
+  host.querySelectorAll('.maprow').forEach(el=>el.onclick=()=>openDetail(el.dataset.id)); }
+
+function mapShowCell(rack,key,ms){ const p=$('mapCellPanel'); if(!p)return;
+  p.innerHTML=`<div class="section-h">Cage @ Rack ${esc(rack)} · ${esc(key)} <span class="sub" style="color:var(--muted);font-weight:400;font-size:12px">— ${ms.length} mice</span></div>
+    <div class="tablewrap"><table><thead><tr><th>Mouse #</th><th>Sex</th><th>Genotype</th><th>Strain</th><th>Age</th><th>Status</th></tr></thead><tbody>${ms.map(m=>`
+      <tr class="maprow" data-id="${esc(m.id)}" style="cursor:pointer"><td><b>${esc(m.tag_id||'(pending)')}</b></td><td>${esc(m.sex||'')}</td><td class="cohort">${esc(m.cohort||'')}</td><td>${esc(m.genotype_label||'')}</td><td style="white-space:nowrap">${m.age_months!=null?(m.dob_estimated?'~':'')+m.age_months+' mo':'—'}</td><td><span class="badge b-${esc(m.status)}">${esc(m.status)}</span></td></tr>`).join('')}</tbody></table></div>`;
+  p.querySelectorAll('.maprow').forEach(tr=>tr.onclick=()=>openDetail(tr.dataset.id));
+  p.scrollIntoView({behavior:'smooth',block:'nearest'}); }
+
+function renderMapEBS(inRoom){ const host=$('mapHost');
+  const inCage=n=>inRoom.filter(m=>String(m.cage||'').trim()===String(n)||String(m.rack_col||'').trim()===String(n)||String(m.rack_row||'').trim()===String(n));
+  const claimed=new Set([1,2,3,4].flatMap(n=>inCage(n).map(m=>m.id)));
+  const other=inRoom.filter(m=>!claimed.has(m.id));
+  const cageBox=n=>{ const ms=inCage(n); return `<div class="ebscage"><div class="sidelabel">🏠 Home cage ${n} <span style="color:var(--muted);font-weight:400">· ${ms.length}</span></div>${ms.length?ms.map(m=>`<div class="ebsm maprow" data-id="${esc(m.id)}" style="cursor:pointer"><b>${esc(m.tag_id||'(pending)')}</b> <span class="sub" style="color:var(--muted)">${esc(m.sex||'')}${m.cohort?' · '+esc(m.cohort):''}</span></div>`).join(''):'<div class="sub" style="color:var(--muted);font-size:12px;padding-top:4px">empty</div>'}</div>`; };
+  const otherHtml=other.length?`<div class="section-h" style="margin-top:16px">Other EBS mice · ${other.length} <span class="sub" style="color:var(--muted);font-weight:400;font-size:12px">— not assigned to a home cage # (1–4)</span></div>
+    <div class="maptray">${other.map(m=>`<span class="traychip maprow" data-id="${esc(m.id)}">${esc(m.tag_id||'(pending)')} <span style="color:var(--muted)">${esc(m.cohort||'')}</span></span>`).join('')}</div>`:'';
+  host.innerHTML=mapCrumb()+`<div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:12px">EBS 58 — 4 specialized home cages.</div><div class="ebswrap">${[1,2,3,4].map(cageBox).join('')}</div>${otherHtml}`;
+  host.querySelectorAll('.maprow').forEach(el=>el.onclick=()=>openDetail(el.dataset.id)); }
 
 function showMigrationBanner(){
   if(document.getElementById('migBanner')) return;
