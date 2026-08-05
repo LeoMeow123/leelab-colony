@@ -211,7 +211,8 @@
   .mcell.empty{background:var(--bg2);opacity:.45}
   .mcell.occ{cursor:pointer;background:color-mix(in srgb, var(--cc) 30%, transparent);border-color:var(--cc)}
   .mcell.occ:hover{background:color-mix(in srgb, var(--cc) 55%, transparent)}
-  .mcell.occ.breed{outline:2px solid var(--purple);outline-offset:-2px}
+  .mcell.breed{outline:2px solid var(--cc);outline-offset:-2px}
+  .mcell.occ.breed{background:color-mix(in srgb, var(--cc) 48%, transparent);font-weight:600}
   .mcell.movable{cursor:grab}
   .mcell.movable:active{cursor:grabbing}
   .mcell.range{cursor:pointer;border-color:color-mix(in srgb, var(--cc) 60%, transparent);background:color-mix(in srgb, var(--cc) 24%, transparent);background-image:repeating-linear-gradient(45deg, color-mix(in srgb, var(--cc) 42%, transparent) 0 5px, transparent 5px 10px)}
@@ -2592,6 +2593,8 @@ function cohortColor(c){ if(!c)return '#94a3b8'; let h=0; for(let i=0;i<c.length
 const MAP_STATUS_COLOR={healthy:'#22c55e',diseased:'#f59e0b',sacrificed:'#94a3b8',dead:'#6b7280',transferred:'#3b82f6',collected:'#a855f7',unknown:'#cbd5e1'};
 const statusColor=s=>MAP_STATUS_COLOR[s]||'#cbd5e1';
 const mapCellColor=ms=> MAP_COLORBY==='status' ? statusColor(mapMostCommon(ms.map(m=>m.status))) : cohortColor(mapMostCommon(ms.map(m=>m.cohort)));
+const MAP_BREED_COLOR='#db2777'; // breeding cages always get this fixed color, whatever the color-by mode
+const mapGenos=ms=>[...new Set(ms.map(m=>m.cohort).filter(Boolean))].join('/')||'—'; // the genotype(s) in a cage
 
 async function loadMapRows(force){ if(MAP_ROWS&&!force) return MAP_ROWS;
   const sel='id,tag_id,sex,cohort,genotype_label,status,facility,room,rack,rack_col,rack_row,cage,current_location,owner_name,responsible_person,created_by,dob_estimated,age_months'+(HAS_BREEDING?',breeding':'');
@@ -2671,14 +2674,16 @@ function mapAllRacks(rows){ const seen=new Map();
 function mapRackPanelHtml(d,idx){
   const {fac,room,rack,inRack,cells,rangeGroups,coverage}=d;
   const cellHtml=(col,row)=>{ const key=col+row, ms=cells.get(key)||[];
-    if(ms.length){ const breeding=ms.some(m=>m.breeding); const cohort=mapMostCommon(ms.map(m=>m.cohort))||'';
+    if(ms.length){ const breeding=ms.some(m=>m.breeding);
+      const cohort=breeding?mapGenos(ms):(mapMostCommon(ms.map(m=>m.cohort))||'');
       const sex=['M','F','U'].map(s=>{ const c=ms.filter(m=>m.sex===s).length; return c?c+s.toLowerCase():null; }).filter(Boolean).join(' ');
-      return `<td class="mcell occ${breeding?' breed':''}" style="--cc:${mapCellColor(ms)}" data-cell="${key}" data-col="${col}" data-row="${row}" title="${key} · ${esc(cohort)} · ${ms.length} mice">
-        <div class="mccount">${ms.length}${breeding?'🔬':''}</div><div class="mcsub">${esc(cohort)}</div><div class="mcsub2">${esc(sex)}</div></td>`; }
+      const cc=breeding?MAP_BREED_COLOR:mapCellColor(ms);
+      return `<td class="mcell occ${breeding?' breed':''}" style="--cc:${cc}" data-cell="${key}" data-col="${col}" data-row="${row}" title="${breeding?'🔬 breeding cage · ':''}${key} · ${esc(cohort)} · ${ms.length} mice">
+        <div class="mccount">${ms.length}${breeding?' 🔬':''}</div><div class="mcsub">${esc(cohort)}</div><div class="mcsub2">${esc(sex)}</div></td>`; }
     const gk=coverage.get(key);
-    if(gk){ const g=rangeGroups.get(gk), s=g.s;
-      const color=MAP_COLORBY==='status'?statusColor(mapMostCommon(g.ms.map(m=>m.status))):cohortColor(s.cohort);
-      return `<td class="mcell range" style="--cc:${color}" data-col="${col}" data-row="${row}" data-range="${esc(gk)}" title="${esc(s.cohort)} · ${esc(s.ageStr)} · ${esc(s.sex)} · ${g.ms.length} mice">
+    if(gk){ const g=rangeGroups.get(gk), s=g.s, breeding=g.ms.some(m=>m.breeding);
+      const color=breeding?MAP_BREED_COLOR:(MAP_COLORBY==='status'?statusColor(mapMostCommon(g.ms.map(m=>m.status))):cohortColor(s.cohort));
+      return `<td class="mcell range${breeding?' breed':''}" style="--cc:${color}" data-col="${col}" data-row="${row}" data-range="${esc(gk)}" title="${breeding?'🔬 breeding · ':''}${esc(s.cohort)} · ${esc(s.ageStr)} · ${esc(s.sex)} · ${g.ms.length} mice">
         <div class="mcsub">${esc(s.cohort)}</div><div class="mcsub2">${esc(s.ageStr)}</div></td>`; }
     return `<td class="mcell empty" data-col="${col}" data-row="${row}"></td>`; };
   const sideHtml=(cols,label)=>`<div><div class="sidelabel">${label}</div><table class="rackgrid"><thead><tr><th></th>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>`+
@@ -2686,10 +2691,12 @@ function mapRackPanelHtml(d,idx){
   const legend=(()=>{ let items;
     if(MAP_COLORBY==='status'){ items=[...new Set(inRack.map(m=>m.status))].filter(Boolean).map(s=>[s,statusColor(s)]); }
     else { items=[...new Set(inRack.map(m=>m.cohort))].filter(Boolean).map(c=>[c,cohortColor(c)]); }
-    return items.length?`<div class="maplegend">${items.map(([l,c])=>`<span class="lg"><span class="sw" style="background:${c}"></span>${esc(l)}</span>`).join('')}</div>`:''; })();
+    const breedLg = inRack.some(m=>m.breeding)?`<span class="lg"><span class="sw" style="background:${MAP_BREED_COLOR}"></span>🔬 Breeding cage</span>`:'';
+    const rest = items.map(([l,c])=>`<span class="lg"><span class="sw" style="background:${c}"></span>${esc(l)}</span>`).join('');
+    return (breedLg||rest)?`<div class="maplegend">${breedLg}${rest}</div>`:''; })();
   const blocksHtml = rangeGroups.size?`<div class="section-h" style="margin-top:14px">Cohort blocks · ${rangeGroups.size}</div>
-    <div class="mapblocks">${[...rangeGroups.entries()].map(([gk,g])=>{ const s=g.s, color=cohortColor(s.cohort);
-      return `<div class="mapblock" data-range="${esc(gk)}" style="border-left-color:${color}"><span class="sw" style="background:${color}"></span><b>${esc(s.cohort)}</b> <span class="sub" style="color:var(--muted)">${s.ageStr?esc(s.ageStr)+' · ':''}${s.sex?esc(s.sex)+' · ':''}${esc(mapRangeLabel(g))} · ${g.ms.length} mice</span></div>`; }).join('')}</div>`:'';
+    <div class="mapblocks">${[...rangeGroups.entries()].map(([gk,g])=>{ const s=g.s, breeding=g.ms.some(m=>m.breeding), color=breeding?MAP_BREED_COLOR:cohortColor(s.cohort);
+      return `<div class="mapblock" data-range="${esc(gk)}" style="border-left-color:${color}"><span class="sw" style="background:${color}"></span><b>${breeding?'🔬 ':''}${esc(s.cohort)}</b> <span class="sub" style="color:var(--muted)">${s.ageStr?esc(s.ageStr)+' · ':''}${s.sex?esc(s.sex)+' · ':''}${esc(mapRangeLabel(g))} · ${g.ms.length} mice</span></div>`; }).join('')}</div>`:'';
   const tray=d.inRack.filter(r=>{ const cs=parseColSpan(r.rack_col), rs=parseRowSpan(r.rack_row); return !cs||!rs; });
   const trayHtml = tray.length?`<div class="section-h" style="margin-top:14px">Unplaceable · ${tray.length} <span class="sub" style="color:var(--muted);font-weight:400;font-size:12px">— drag one onto a cell to place it.</span></div>
     <div class="maptray">${tray.map(m=>`<span class="traychip maprow" data-id="${esc(m.id)}" title="${esc(m.cohort||'')}">${esc(mouseLabel(m))} <span style="color:var(--muted)">${esc(m.rack_col||'?')}/${esc(m.rack_row||'?')}</span></span>`).join('')}</div>`:'';
