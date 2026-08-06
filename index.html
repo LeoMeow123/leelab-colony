@@ -2575,13 +2575,19 @@ const mapSingleCol=v=>/^[A-N]$/.test(String(v||'').trim().toUpperCase());
 const mapSingleRow=v=>/^[1-9]$/.test(String(v||'').trim());
 const mapPlaced=r=>mapSingleCol(r.rack_col)&&mapSingleRow(r.rack_row);
 const mapCanMove=ms=> isMgr() || (ms||[]).some(m=>m&&(m.responsible_person===USER.id||m.created_by===USER.id)); // members drag only their own
-const RACK_COLS=[...RACK_TPL.sides[0],...RACK_TPL.sides[1]]; // A..N in physical order
-// A col/row can be a single value OR a range ("H-L", "1-5") meaning a cohort spans that block.
-function parseColSpan(v){ v=String(v||'').trim().toUpperCase(); if(/^[A-N]$/.test(v)) return [v];
-  const m=v.match(/^([A-N])\s*[-–]\s*([A-N])$/); if(m){ let a=RACK_COLS.indexOf(m[1]),b=RACK_COLS.indexOf(m[2]); if(a<0||b<0)return null; if(a>b){const t=a;a=b;b=t;} return RACK_COLS.slice(a,b+1); } return null; }
-function parseRowSpan(v){ v=String(v||'').trim(); if(/^[1-9]$/.test(v)) return [+v];
-  const m=v.match(/^(\d+)\s*[-–]\s*(\d+)$/); if(m){ let a=+m[1],b=+m[2]; if(a>b){const t=a;a=b;b=t;} a=Math.max(1,a); b=Math.min(RACK_TPL.rows,b); if(b<a)return null; const out=[]; for(let i=a;i<=b;i++)out.push(i); return out; } return null; }
-const mapHasLoc=r=>!!(parseColSpan(r.rack_col)&&parseRowSpan(r.rack_row)); // has a spot on the rack (precise cell OR a range block)
+const RACK_COLS=[...RACK_TPL.sides[0],...RACK_TPL.sides[1]]; // A..N default (CRAF/SAF)
+// Per-rack geometry overrides. IVSS = single side, columns A–F, rows 1–10.
+const RACK_TPLS={ IVSS:{ sides:[['A','B','C','D','E','F']], rows:10 } };
+function rackTpl(rack){ return RACK_TPLS[rack] || RACK_TPL; }
+const tplCols=tpl=>tpl.sides.reduce((a,s)=>a.concat(s),[]);
+// A col/row can be a single value OR a range ("H-L", "1-5") meaning a cohort spans that block. tpl = the rack's geometry.
+function parseColSpan(v, tpl){ const cols = tpl ? tplCols(tpl) : RACK_COLS;
+  v=String(v||'').trim().toUpperCase(); if(cols.includes(v)) return [v];
+  const m=v.match(/^([A-Z])\s*[-–]\s*([A-Z])$/); if(m){ let a=cols.indexOf(m[1]),b=cols.indexOf(m[2]); if(a<0||b<0)return null; if(a>b){const t=a;a=b;b=t;} return cols.slice(a,b+1); } return null; }
+function parseRowSpan(v, tpl){ const maxR = tpl ? tpl.rows : RACK_TPL.rows;
+  v=String(v||'').trim(); if(/^\d+$/.test(v)){ const n=+v; return (n>=1&&n<=maxR)?[n]:null; }
+  const m=v.match(/^(\d+)\s*[-–]\s*(\d+)$/); if(m){ let a=+m[1],b=+m[2]; if(a>b){const t=a;a=b;b=t;} a=Math.max(1,a); b=Math.min(maxR,b); if(b<a)return null; const out=[]; for(let i=a;i<=b;i++)out.push(i); return out; } return null; }
+const mapHasLoc=r=>{ const t=rackTpl(r.rack); return !!(parseColSpan(r.rack_col,t)&&parseRowSpan(r.rack_row,t)); }; // spot on its own rack
 const mapClearDrop=()=>{ MAP_DRAG=null; document.querySelectorAll('.mcell.drop, .ebscage.drop').forEach(x=>x.classList.remove('drop')); };
 const mapAge=m=> m&&m.age_months!=null ? (m.dob_estimated?'~':'')+m.age_months+'mo' : '';
 // Most mice have no ear-tag yet, so lead with the useful identity: sex · genotype · age (tag only if present).
@@ -2654,9 +2660,10 @@ function renderMapRoom(rows){ const host=$('mapHost'); const {fac,room}=MAP_NAV;
 
 // Compute one rack's placement data (precise cells, range blocks, tray, and the real room to write).
 function mapRackData(fac,room,rack,rows){
+  const tpl=rackTpl(rack);
   const inRack=rows.filter(r=>r.facility===fac && normRoom(r.facility,r.room)===room && (r.rack||'(no rack)')===rack);
   const cells=new Map(), rangeGroups=new Map(), tray=[];
-  inRack.forEach(r=>{ const cs=parseColSpan(r.rack_col), rs=parseRowSpan(r.rack_row);
+  inRack.forEach(r=>{ const cs=parseColSpan(r.rack_col,tpl), rs=parseRowSpan(r.rack_row,tpl);
     if(!cs||!rs){ tray.push(r); return; }
     if(cs.length===1&&rs.length===1){ const k=cs[0]+rs[0]; if(!cells.has(k))cells.set(k,[]); cells.get(k).push(r); }
     else { const k=(r.rack_col||'')+'¦'+(r.rack_row||''); if(!rangeGroups.has(k))rangeGroups.set(k,{cols:cs,rows:rs,ms:[]}); rangeGroups.get(k).ms.push(r); } });
@@ -2681,6 +2688,7 @@ function mapAllRacks(rows){ const seen=new Map();
 // Render one rack as a self-contained panel (data-panel index carries which MAP_PANELS entry it is).
 function mapRackPanelHtml(d,idx){
   const {fac,room,rack,inRack,cells,rangeGroups,coverage}=d;
+  const tpl=rackTpl(rack);
   const cellHtml=(col,row)=>{ const key=col+row, ms=cells.get(key)||[];
     if(ms.length){ const breeding=ms.some(m=>m.breeding);
       const cohort=breeding?mapGenos(ms):(mapMostCommon(ms.map(m=>m.cohort))||'');
@@ -2695,7 +2703,8 @@ function mapRackPanelHtml(d,idx){
         <div class="mcsub">${esc(s.cohort)}</div><div class="mcsub2">${esc(s.ageStr)}</div></td>`; }
     return `<td class="mcell empty" data-col="${col}" data-row="${row}"></td>`; };
   const sideHtml=(cols,label)=>`<div><div class="sidelabel">${label}</div><table class="rackgrid"><thead><tr><th></th>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>`+
-    Array.from({length:RACK_TPL.rows},(_,i)=>{ const row=i+1; return `<tr><th>${row}</th>${cols.map(c=>cellHtml(c,String(row))).join('')}</tr>`; }).join('')+`</tbody></table></div>`;
+    Array.from({length:tpl.rows},(_,i)=>{ const row=i+1; return `<tr><th>${row}</th>${cols.map(c=>cellHtml(c,String(row))).join('')}</tr>`; }).join('')+`</tbody></table></div>`;
+  const sideLabel=(cols,i)=>tpl.sides.length>1?(i===0?'Front':'Back')+' · '+cols[0]+'–'+cols[cols.length-1]:cols[0]+'–'+cols[cols.length-1];
   const legend=(()=>{ let items;
     if(MAP_COLORBY==='status'){ items=[...new Set(inRack.map(m=>m.status))].filter(Boolean).map(s=>[s,statusColor(s)]); }
     else { items=[...new Set(inRack.map(m=>m.cohort))].filter(Boolean).map(c=>[c,cohortColor(c)]); }
@@ -2705,12 +2714,12 @@ function mapRackPanelHtml(d,idx){
   const blocksHtml = rangeGroups.size?`<div class="section-h" style="margin-top:14px">Cohort blocks · ${rangeGroups.size}</div>
     <div class="mapblocks">${[...rangeGroups.entries()].map(([gk,g])=>{ const s=g.s, breeding=g.ms.some(m=>m.breeding), color=breeding?MAP_BREED_COLOR:cohortColor(s.cohort);
       return `<div class="mapblock" data-range="${esc(gk)}" style="border-left-color:${color}"><span class="sw" style="background:${color}"></span><b>${breeding?'🔬 ':''}${esc(s.cohort)}</b> <span class="sub" style="color:var(--muted)">${s.ageStr?esc(s.ageStr)+' · ':''}${s.sex?esc(s.sex)+' · ':''}${esc(mapRangeLabel(g))} · ${g.ms.length} mice</span></div>`; }).join('')}</div>`:'';
-  const tray=d.inRack.filter(r=>{ const cs=parseColSpan(r.rack_col), rs=parseRowSpan(r.rack_row); return !cs||!rs; });
+  const tray=d.inRack.filter(r=>{ const cs=parseColSpan(r.rack_col,tpl), rs=parseRowSpan(r.rack_row,tpl); return !cs||!rs; });
   const trayHtml = tray.length?`<div class="section-h" style="margin-top:14px">Unplaceable · ${tray.length} <span class="sub" style="color:var(--muted);font-weight:400;font-size:12px">— drag one onto a cell to place it.</span></div>
     <div class="maptray">${tray.map(m=>`<span class="traychip maprow" data-id="${esc(m.id)}" title="${esc(m.cohort||'')}">${esc(mouseLabel(m))} <span style="color:var(--muted)">${esc(m.rack_col||'?')}/${esc(m.rack_row||'?')}</span></span>`).join('')}</div>`:'';
   return `<div class="rackpanel" data-panel="${idx}" data-fac="${esc(fac)}" data-wroom="${esc(d.wroom)}" data-rack="${esc(rack)}">
     <div class="sidelabel" style="font-size:13px;margin-bottom:8px">🗄 ${esc(fac)} ${esc(room)} · Rack ${esc(rack)} <span style="color:var(--muted);font-weight:400">· ${inRack.length} mice · ${cells.size} cell(s)</span></div>
-    <div class="rackwrap">${sideHtml(RACK_TPL.sides[0],'Front · A–G')}${sideHtml(RACK_TPL.sides[1],'Back · H–N')}</div>${legend}${blocksHtml}${trayHtml}</div>`;
+    <div class="rackwrap">${tpl.sides.map((cols,i)=>sideHtml(cols,sideLabel(cols,i))).join('')}</div>${legend}${blocksHtml}${trayHtml}</div>`;
 }
 
 function renderMapRack(rows){ const host=$('mapHost'); const P=MAP_NAV;
