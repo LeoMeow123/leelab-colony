@@ -2565,6 +2565,10 @@ $('greetOverlay').addEventListener('mousedown',e=>{ if(e.target===$('greetOverla
 // CRAF/SAF rack: two symmetric sides (Front A–G / Back H–N), rows 1–9 → 126 cells.
 // CRAF 57 + 157 are one physical room (merged). EBS = 4 specialized home cages.
 const RACK_TPL={ sides:[['A','B','C','D','E','F','G'],['H','I','J','K','L','M','N']], rows:9 };
+// Racks that appear on the map even before any mice are placed in them.
+const MAP_RACK_REGISTRY=[{fac:'EBS',room:'048',rack:'IVSS'}];
+// EBS room 58 is the 4 camera home cages (special view); other EBS rooms are normal rack grids.
+const isEbsHomeRoom=(fac,room)=> fac==='EBS' && room==='58';
 let MAP_ROWS=null, MAP_NAV={level:'rooms'}, MAP_COLORBY='cohort', MAP_DRAG=null, MAP_PANELS=[], MAP_DETAIL_PANEL=0;
 const normRoom=(fac,room)=> fac==='CRAF' ? '57/157' : (room||'—');
 const mapSingleCol=v=>/^[A-N]$/.test(String(v||'').trim().toUpperCase());
@@ -2621,10 +2625,11 @@ function renderMapRooms(rows){ const host=$('mapHost');
     const k=r.facility+'¦'+normRoom(r.facility,r.room);
     if(!places.has(k)) places.set(k,{fac:r.facility,room:normRoom(r.facility,r.room),mice:0,racks:new Set()});
     const p=places.get(k); p.mice++; if(r.rack) p.racks.add(r.rack); });
+  MAP_RACK_REGISTRY.forEach(rr=>{ const k=rr.fac+'¦'+rr.room; if(!places.has(k)) places.set(k,{fac:rr.fac,room:rr.room,mice:0,racks:new Set()}); places.get(k).racks.add(rr.rack); });
   const cards=[...places.values()].sort((a,b)=>b.mice-a.mice).map(p=>`
     <div class="maproomcard" onclick="mapGo('room','${esc(p.fac)}','${esc(p.room)}')">
       <div class="rm">${esc(p.fac)} ${esc(p.room)}</div>
-      <div class="st">${p.mice} mice · ${p.fac==='EBS'?'4 home cages':(p.racks.size+' rack'+(p.racks.size===1?'':'s'))}</div>
+      <div class="st">${p.mice} mice · ${isEbsHomeRoom(p.fac,p.room)?'4 home cages':(p.racks.size+' rack'+(p.racks.size===1?'':'s'))}</div>
       <div class="mapfill"><span style="width:${Math.min(100,Math.round(100*p.mice/rows.length))}%"></span></div>
     </div>`).join('');
   const unpl = unplaced?`<div class="maproomcard" style="border-style:dashed" onclick="mapGo('room','—','—')">
@@ -2634,9 +2639,10 @@ function renderMapRooms(rows){ const host=$('mapHost');
 
 function renderMapRoom(rows){ const host=$('mapHost'); const {fac,room}=MAP_NAV;
   const inRoom = (fac==='—') ? rows.filter(r=>!r.facility) : rows.filter(r=>r.facility===fac && normRoom(r.facility,r.room)===room);
-  if(fac==='EBS') return renderMapEBS(inRoom);
+  if(isEbsHomeRoom(fac,room)) return renderMapEBS(inRoom);
   const racks=new Map();
   inRoom.forEach(r=>{ const rk=r.rack||'(no rack)'; if(!racks.has(rk))racks.set(rk,[]); racks.get(rk).push(r); });
+  MAP_RACK_REGISTRY.filter(rr=>rr.fac===fac && rr.room===room).forEach(rr=>{ if(!racks.has(rr.rack)) racks.set(rr.rack,[]); }); // show registered racks even when empty
   const tiles=[...racks.entries()].sort((a,b)=>b[1].length-a[1].length).map(([rk,ms])=>{
     const placed=ms.filter(mapHasLoc).length;
     return `<div class="maproomcard" onclick="mapGo('rack','${esc(fac)}','${esc(room)}','${esc(rk)}')">
@@ -2667,7 +2673,9 @@ function mapRackData(fac,room,rack,rows){
 const mapRangeLabel=g=>`${g.cols[0]}–${g.cols[g.cols.length-1]} × rows ${g.rows[0]}–${g.rows[g.rows.length-1]}`;
 const mapRangeTitle=g=>`${g.s.cohort} · ${g.s.ageStr||'age n/a'}${g.s.sex?' · '+g.s.sex:''} · ${mapRangeLabel(g)} · ${g.ms.length} mice`;
 function mapAllRacks(rows){ const seen=new Map();
-  rows.forEach(r=>{ if(!r.facility||r.facility==='EBS'||!r.rack)return; const room=normRoom(r.facility,r.room); const k=r.facility+'¦'+room+'¦'+r.rack; if(!seen.has(k))seen.set(k,{fac:r.facility,room,rack:r.rack}); });
+  const add=(fac,room,rack)=>{ if(isEbsHomeRoom(fac,room)||!rack)return; const k=fac+'¦'+room+'¦'+rack; if(!seen.has(k))seen.set(k,{fac,room,rack}); };
+  rows.forEach(r=>{ if(!r.facility)return; add(r.facility,normRoom(r.facility,r.room),r.rack); });
+  MAP_RACK_REGISTRY.forEach(rr=>add(rr.fac,rr.room,rr.rack)); // IVSS etc. are valid transfer targets even when empty
   return [...seen.values()].sort((a,b)=>(a.fac+a.room+a.rack).localeCompare(b.fac+b.room+b.rack,undefined,{numeric:true})); }
 
 // Render one rack as a self-contained panel (data-panel index carries which MAP_PANELS entry it is).
