@@ -205,8 +205,10 @@
   .rackpair.two .rackpanel{flex:1 1 0;min-width:340px;border:1px solid var(--accent);border-radius:12px;padding:12px;background:var(--bg2)}
   .rackpair.two .rackpanel .rackwrap{gap:16px}
   .sidelabel{font-size:12px;color:var(--muted);font-weight:700;margin-bottom:5px}
-  .rackgrid{border-collapse:separate;border-spacing:3px}
-  .rackgrid th{font-size:11px;color:var(--muted);font-weight:600;width:22px;height:22px;text-align:center}
+  .rackgrid{table-layout:fixed;border-collapse:separate;border-spacing:3px}
+  .rackgrid th{font-size:11px;color:var(--muted);font-weight:600;height:22px;text-align:center;overflow:hidden}
+  .rackgrid thead th{width:46px}                              /* fixed layout: header row sets column widths */
+  .rackgrid thead th:first-child,.rackgrid tbody th{width:22px} /* corner + row-number column stay narrow */
   .mcell{width:46px;height:46px;border-radius:6px;border:1px solid var(--border);vertical-align:middle;text-align:center;padding:0;overflow:hidden}
   .mcell.empty{background:var(--bg2);opacity:.45}
   .mcell.occ{cursor:pointer;background:color-mix(in srgb, var(--cc) 30%, transparent);border-color:var(--cc)}
@@ -225,8 +227,8 @@
   .mapblock{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-left-width:4px;border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer;background:var(--bg2)}
   .mapblock .sw{width:10px;height:10px;border-radius:3px;display:inline-block}
   .mccount{font-size:13px;font-weight:700;line-height:1.05}
-  .mcsub{font-size:9px;color:var(--text);line-height:1.05;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 2px}
-  .mcsub2{font-size:9px;color:var(--muted);line-height:1.05}
+  .mcsub{font-size:9px;color:var(--text);line-height:1.05;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 2px;max-width:100%}
+  .mcsub2{font-size:9px;color:var(--muted);line-height:1.05;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 2px;max-width:100%}
   .maptray{display:flex;flex-wrap:wrap;gap:6px}
   .traychip{font-size:12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:3px 8px;cursor:pointer}
   .maplegend{display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-top:10px}
@@ -333,7 +335,7 @@
       <div class="f"><label>Age ≤ (mo)</label><input class="in" id="fAgeMax" type="number" step="0.1" placeholder="max"></div>
       <div class="f"><label>Owner</label><select class="in" id="fOwner"><option value="">any</option></select></div>
       <div class="f"><label>Location</label><input class="in" id="fLoc" placeholder="room / rack"></div>
-      <div class="f"><button class="btn sm" id="fMine" title="Show only mice you own">Mine</button> <button class="btn r sm" id="fClear" title="Clear filters">clear</button> <button class="btn g sm" id="exportCsv">CSV</button></div>
+      <div class="f"><button class="btn sm" id="fMine" title="Show only mice you own">Mine</button> <button class="btn r sm" id="fClear" title="Clear filters">clear</button> <button class="btn g sm" id="exportCsv" title="Export the current filtered view">CSV</button> <button class="btn g sm" id="exportAll" title="Export the ENTIRE colony (all mice, ignores filters)">Export all</button></div>
     </div>
     <div class="viewtoggle">
       <span style="font-size:12px;color:var(--muted)">View</span>
@@ -1059,6 +1061,19 @@ $('exportCsv').onclick=async()=>{
     let csv=cols.join(',')+'\n';
     rows.forEach(m=>{ csv+=cols.map(c=>{const v=m[c]==null?'':String(m[c]);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}).join(',')+'\n'; });
     const b=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='colony_export.csv';a.click();
+  }catch(e){ toast('Export failed: '+e.message); }
+};
+// Export the ENTIRE colony — every mouse (incl. breeding), all fields, ignoring filters — into one CSV.
+$('exportAll').onclick=async()=>{
+  try{
+    toast('Exporting full colony…');
+    const cols=['tag_id','sex','cohort','genotype_label','age_months','age_weeks','age_days','dob','dob_estimated','status'+(HAS_BREEDING?',breeding':''),'facility','room','rack','rack_col','rack_row','cage','current_location','owner_name','experiments','last_verified','date_of_death','notes','id'].join(',').split(',');
+    let rows=[]; for(let from=0;;from+=1000){ const r=await api(`mouse_v?select=${cols.join(',')}&order=facility.asc,cohort.asc,tag_id.asc&limit=1000&offset=${from}`); const b=r.data||[]; rows=rows.concat(b); if(b.length<1000)break; }
+    if(!rows.length){ toast('No mice to export'); return; }
+    let csv=cols.join(',')+'\n';
+    rows.forEach(m=>{ csv+=cols.map(c=>{const v=m[c]==null?'':String(m[c]);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}).join(',')+'\n'; });
+    const b=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='colony_full_'+todayStr()+'.csv';a.click();
+    toast(`Exported ${rows.length} mice`);
   }catch(e){ toast('Export failed: '+e.message); }
 };
 
