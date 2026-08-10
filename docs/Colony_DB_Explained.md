@@ -143,6 +143,32 @@ switch to **Supabase Auth** (magic-link / Google) and write those rules into RLS
 **with no change to the data or tables**. That upgrade path is why the schema was
 built this way.
 
+## The room map (🗺 Map)
+
+The **Map** tab draws the colony the way it's physically arranged, and it needed **no new
+database tables** — it just *reads the location fields every mouse already has*
+(`facility`, `room`, `rack`, `rack_col`, `rack_row`). In other words, a "cage" isn't a
+stored object; it's simply the set of mice that share the same rack + column + row.
+
+- **Drill down:** Rooms → a room → a rack → a **column × row grid** of cages. Cells are a
+  fixed uniform size; a long genotype is truncated on the cell (click it for the full
+  per-mouse detail). CRAF and SAF racks are two-sided (Front A–G / Back H–N, rows 1–9).
+- **Special rooms:** CRAF 57 and 157 are shown as one room; **EBS 58** is drawn as its 4
+  transparent camera home-cages (mice shown as little icons); **EBS 048** is the **IVSS**
+  single-sided rack (A–F × 10). A small registry lets a rack appear even before any mice
+  are placed in it.
+- **Colour:** by genotype or status (toggle). **Breeding cages** always show in a fixed
+  pink with a 🔬 and their genotype(s), so they stand out in any mode.
+- **Ranges:** older data sometimes records a whole cohort as spanning columns (e.g.
+  `H–L`). The map renders that as a striped block labelled genotype · age · sex, instead
+  of hiding it.
+- **Moving mice = editing their location fields.** Drag a cage, or an individual mouse,
+  onto another cell — after a confirm — and it rewrites that mouse's `rack_col`/`rack_row`
+  (and rebuilds its `current_location`). **↔ Transfer** opens a second rack side-by-side so
+  you can drag mice **between racks or rooms** (a full facility/room/rack move). Because
+  each mouse is written on its own, two people rearranging different cages never collide.
+  Every move is owner-scoped and written to the audit log; there's still no schema change.
+
 ## The lab-morale extras
 
 Beyond the data, the app tries to be a nice place to visit:

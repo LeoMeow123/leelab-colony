@@ -1,6 +1,6 @@
 # Plan — Virtual Room / Rack Map for the Lee Lab Colony
 
-**Status:** draft for review · **Owner:** Leo · **Date:** 2026-08-04
+**Status:** ✅ shipped (Phases 0–3b + rooms/breeding/export; 3D deferred) · **Owner:** Leo · **Drafted:** 2026-08-04 · **Delivered:** 2026-08-10
 
 Goal: a visual, navigable layout of the colony's physical space — enter a room,
 see its racks, open a rack, and see the **cages** in a grid with **which mice /
@@ -196,17 +196,17 @@ No destructive changes — cleanup is done through the existing owner-scoped edi
 
 ## 9. Phased delivery
 
-| Phase | Deliverable | Writes? | Migration |
-|---|---|---|---|
-| **0. Audit & cleanup hooks** | Unplaced/imprecise trays + counts; reuse Batch-Move to place mice | uses existing | none |
-| **1. 2D rack view (read-only)** | Pick facility→room→rack → two-sided col×row grid, cells colored by cohort/status, click → mice | no | none |
-| **2. Room + find** | Room = rack tiles w/ fill %, facility landing, "find this mouse/cohort on the map" highlight, legend + color-by toggle | no | none |
-| **3. Edit on the map** ✅ *shipped* | Drag a cage onto a cell to move it (**confirm before write**); drag a "to place" chip onto a cell to place it — owner-scoped + audited (`MAP_MOVE`) | yes | none |
-| **4. 3D room (stretch)** | Optional walk-in view (CSS-3D first, Three.js only if warranted) | no | none |
-
-Recommended first slice to build after sign-off: **Phase 1 for one rack** (SAF 40 /
-3371 — the densest, 227 mice) to validate the grid, colors, and click-through, then
-generalize.
+| Phase | Deliverable | Status |
+|---|---|---|
+| **0. Audit & cleanup hooks** | Unplaced/imprecise trays + counts; reuse Batch-Move to place mice | ✅ shipped |
+| **1. 2D rack view** | Facility→room→rack → col×row grid (fixed uniform cells, genotype truncated, click for full info), colored by genotype/status, click → mice | ✅ shipped |
+| **2. Room + ranges** | Room = rack tiles w/ located %, color-by toggle + legend, **range blocks** (a cohort recorded as `H–L` renders as a striped span labeled genotype·age·sex), Unplaceable tray | ✅ shipped |
+| **3. Edit on the map** | Drag a cage or individual mouse onto a cell (**confirm before write**), drag from the tray to place — owner-scoped + audited (`MAP_MOVE`) | ✅ shipped |
+| **3b. Cross-rack transfer** | **↔ Transfer to another rack** opens a second rack side-by-side; drag mice between racks/rooms → full-location update (`MAP_TRANSFER`) | ✅ shipped |
+| **Rooms** | CRAF 57+157 merged; **EBS 58 = 4 camera home cages** (transparent 2.5D cages, mouse icons); **EBS 048 = IVSS** single-side A–F × 10; registered racks show even when empty | ✅ shipped |
+| **Breeding on map** | Breeding cages get a fixed pink color + 🔬 + genotype(s), whatever the color mode, plus a legend entry | ✅ shipped |
+| **Export** | Colony tab **Export all** → whole colony (incl. breeding, all fields) to one CSV | ✅ shipped |
+| **4. 3D room (stretch)** | Optional walk-in view (CSS-3D first, Three.js only if warranted) | ⏸ deferred |
 
 ---
 
@@ -224,11 +224,11 @@ generalize.
 
 ---
 
-## 11. Status
+## 11. Status — delivered 2026-08-10
 
-Geometry is **confirmed** (§4): CRAF/SAF = A–G / H–N × rows 1–9 (126 cells); CRAF 57+157
-merged into one room; EBS = 4 home cages. Phase 1 can be built against the real layout;
-the remaining questions (§4.4–4.7) are cosmetic and don't block the first slice.
-
-**Next:** build **Phase 1** — the read-only 2D rack grid — starting with **SAF 40 / rack
-3371** (227 mice, densest), then the other racks + the EBS home-cage view.
+The 🗺 **Map** tab is live. Shipped beyond the original plan: cross-rack transfer (split
+view), range blocks rendered on the grid (not just trayed), breeding cages in a fixed
+pink, the EBS transparent-cage view with mouse icons, the IVSS single-side rack, uniform
+fixed-layout cells (long genotypes truncate; click for full info), and an Export-all CSV.
+No schema change or backup impact — it all rides on the existing `rack_col`/`rack_row`
+location fields. Only **3D (Phase 4)** is intentionally deferred.
