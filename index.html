@@ -317,6 +317,7 @@
       <button class="tab" data-tab="graveyard">🕯️ In Memoriam</button>
       <button class="tab" data-tab="guardians">😇 Guardian Angels</button>
       <button class="tab" data-tab="people">People</button>
+      <button class="tab" data-tab="reversal">⚠ Strain/Geno fix</button>
     </div>
     <div class="who"><span id="imperBanner" class="hidden" style="background:var(--amber);color:#fff;padding:2px 8px;border-radius:8px;font-size:12px;margin-right:8px"></span><span>👤 <b id="whoName"></b> <span class="pill" id="whoRole"></span></span><button class="btn sm" id="changePw" title="Change your password">🔑</button><button class="btn sm" id="themeToggle" title="Light / dark">☾</button><button class="btn sm" id="logout">Logout</button></div>
   </header>
@@ -328,6 +329,7 @@
     <div class="filters">
       <div class="f grow"><label>Search (mouse # / strain)</label><input class="in" id="fSearch" placeholder="e.g. 4471 or hMAP"></div>
       <div class="f"><label>Sex</label><select class="in" id="fSex"><option value="">any</option><option>M</option><option>F</option><option>U</option></select></div>
+      <div class="f"><label>Strain</label><select class="in" id="fStrain"><option value="">any</option></select></div>
       <div class="f"><label>Genotype</label><select class="in" id="fCohort"><option value="">any</option></select></div>
       <div class="f"><label>Facility</label><select class="in" id="fFac"><option value="">any</option></select></div>
       <div class="f"><label>Status</label><select class="in" id="fStatus"><option value="" selected>any</option><option value="healthy">healthy</option><option>diseased</option><option>sacrificed</option><option>dead</option><option>transferred</option><option>collected</option><option>unknown</option></select></div>
@@ -499,6 +501,11 @@
     </div>
     <div id="needsList"></div>
   </div>
+
+  <!-- STRAIN / GENOTYPE CLEANUP (reversal scanner) -->
+  <div class="wrap hidden" id="tab-reversal">
+    <div id="revBody"></div>
+  </div>
 </div>
 <datalist id="cohortDL"></datalist>
 
@@ -596,6 +603,71 @@ async function ensureCohort(val){ val=(val||'').trim(); if(!val||COHORTS.some(c=
   COHORTS.push(val); refreshCohortDL();
   try{ await api('app_config',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:[{key:'cohorts',value:COHORTS.join(',')}]}); }catch(_){} }
 function facilityOptions(sel){ return FACILITIES.map(f=>`<option${f===sel?' selected':''}>${esc(f)}</option>`).join(''); }
+// Strain (genotype_label) + Genotype (cohort) filter options come from the ACTUAL distinct values in the DB,
+// not the COHORTS vocab (which is strain names) — so the Genotype filter shows real genotypes (+/+, HET…).
+let STRAINS=[], GENOS=[];
+function fillFacets(){
+  const s=$('fStrain'); if(s){ const cur=s.value; s.innerHTML='<option value="">any</option>'+STRAINS.map(v=>`<option${v===cur?' selected':''}>${esc(v)}</option>`).join(''); }
+  const g=$('fCohort'); if(g){ const cur=g.value; g.innerHTML='<option value="">any</option>'+GENOS.map(v=>`<option${v===cur?' selected':''}>${esc(v)}</option>`).join(''); }
+}
+async function loadFacets(){
+  try{ let all=[]; for(let from=0;;from+=1000){ const r=await api(`mouse_v?select=genotype_label,cohort&limit=1000&offset=${from}`); const b=r.data||[]; all=all.concat(b); if(b.length<1000)break; }
+    STRAINS=[...new Set(all.map(m=>m.genotype_label).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b)));
+    GENOS=[...new Set(all.map(m=>m.cohort).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b)));
+  }catch(_){}
+  fillFacets();
+}
+
+// ---------- Strain / Genotype reversal scanner ----------
+// Strain = the line (APP, Tau, WT, Cre lines) → genotype_label field.  Genotype = zygosity (+/+, +/-, -/-) → cohort field.
+const REV_STRAIN=/(APP|Tau|\bWT\b|\bPD\b|Cdh18|SOD1|C57|BL\/?6|5xFAD|3xTg|APOE|Cre|flox|ChAT|Nrgl|Dbh|\bPV\b|\bSom\b|Myf5|CDK|Riken|Jax|Nex|hMAP|\bMAP\b|\bKI\b|\bKO\b|em1|IMPC|Mmjax|5Ht3a|V321L|S305N|NL-?F|Flpo)/i;
+function revIsZyg(v){ v=String(v||'').trim(); if(!v) return false; if(/\b(het|hom|homozyg|heterozyg)\b/i.test(v)) return true; return /[+\-]/.test(v)&&/^[+\-\/f?,\s()]+$/i.test(v); }
+function revIsStrain(v){ v=String(v||'').trim(); return !!v && REV_STRAIN.test(v); }
+function revFlag(m){ return revIsZyg(m.genotype_label) || (revIsStrain(m.cohort)&&!revIsZyg(m.cohort)); }
+function revZyg(v){ const m=String(v||'').match(/[+\-]\/[+\-]|HET\s*\([^)]*\)|HOM\s*\([^)]*\)|\bHET\b|\bHOM\b/i); return m?m[0].trim():''; }
+function revStrainPart(v){ return String(v||'').replace(/\([^)]*\)/g,'').replace(/[+\-]\/[+\-]/g,'').replace(/\b(HET|HOM)\b/ig,'').replace(/,/g,' ').trim(); }
+function revSuggest(m){ const gl=String(m.genotype_label||''), co=String(m.cohort||'');
+  const glZyg=revIsZyg(gl), coStrain=revIsStrain(co)&&!revIsZyg(co);
+  if(glZyg&&coStrain) return { strain: revStrainPart(co)||co, genotype: gl };              // true swap → put each back
+  if(coStrain) return { strain: gl||revStrainPart(co)||co, genotype: revZyg(co) };          // strain leaked into the Genotype field
+  if(glZyg) return { strain:'', genotype: gl };                                             // zygosity sitting in the Strain field
+  return { strain: gl, genotype: co }; }
+async function renderReversal(){
+  const host=$('revBody'); if(!host) return; host.innerHTML='<div class="sub" style="color:var(--muted)">Scanning colony…</div>';
+  let all=[]; try{ for(let from=0;;from+=1000){ const r=await api(`mouse_v?select=id,tag_id,cohort,genotype_label,status,owner_name&order=tag_id.asc.nullslast&limit=1000&offset=${from}`); const b=r.data||[]; all=all.concat(b); if(b.length<1000)break; } }
+  catch(e){ host.innerHTML='<div class="empty">Scan failed: '+esc(e.message)+'</div>'; return; }
+  const flagged=all.filter(revFlag); const mgr=isMgr();
+  host.innerHTML=`
+    <div style="margin-bottom:10px">
+      <h1 style="font-size:17px;margin:0 0 4px">⚠ Strain / Genotype cleanup <span class="em">${flagged.length} to review</span></h1>
+      <div class="sub" style="color:var(--muted);font-size:12px">Mice where a <b>strain</b> (APP, Tau, WT, a Cre line…) sits in the <b>Genotype</b> field, or a genotype sits in the <b>Strain</b> field. <b>Strain</b> = the line; <b>Genotype</b> = zygosity (+/+, +/-, -/-). Fix each row and Save.${mgr?'':' <b style="color:var(--amber)">View-only — a manager can save.</b>'}</div>
+      <div style="margin-top:6px"><button class="btn sm" onclick="renderReversal()">↻ Rescan</button></div>
+    </div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Mouse #</th><th>Owner</th><th>Strain (line)</th><th>Genotype (zygosity)</th><th>Suggested fix</th><th></th></tr></thead>
+      <tbody>${flagged.map(m=>{ const s=revSuggest(m); const useBtn=(s.strain||s.genotype)?`<button class="btn sm" data-s="${esc(s.strain)}" data-g="${esc(s.genotype)}" onclick="revUse(this)">use →</button>`:''; return `<tr data-id="${esc(m.id)}">
+        <td><b>${esc(m.tag_id||'—')}</b></td>
+        <td class="sub" style="font-size:11px">${esc(m.owner_name||'')}</td>
+        <td><input class="in rv-s" list="cohortDL" value="${esc(m.genotype_label||'')}" style="min-width:150px" ${mgr?'':'disabled'}></td>
+        <td><input class="in rv-g" value="${esc(m.cohort||'')}" style="min-width:110px" placeholder="+/+, +/-, -/-" ${mgr?'':'disabled'}></td>
+        <td class="sub" style="font-size:11px">${s.strain?'strain=<b>'+esc(s.strain)+'</b>':''}${s.genotype?' · geno=<b>'+esc(s.genotype)+'</b>':(s.strain?' · geno=<i>set manually</i>':'')} ${useBtn}</td>
+        <td>${mgr?`<button class="btn p sm" onclick="revSave('${esc(m.id)}',this)">Save</button>`:''}</td>
+      </tr>`; }).join('')||`<tr><td colspan="6" class="empty">🎉 Nothing misfiled — strain &amp; genotype look clean.</td></tr>`}</tbody>
+    </table></div>`;
+}
+window.revUse=function(btn){ const tr=btn.closest('tr'); if(!tr)return; tr.querySelector('.rv-s').value=btn.dataset.s||''; tr.querySelector('.rv-g').value=btn.dataset.g||''; };
+window.revSave=async function(id,btn){
+  if(!isMgr()){ toast('Managers only'); return; }
+  const tr=btn.closest('tr'); if(!tr)return;
+  const strain=tr.querySelector('.rv-s').value.trim()||null, geno=tr.querySelector('.rv-g').value.trim()||null;
+  btn.disabled=true;
+  try{
+    await api(`mice?id=eq.${id}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:{genotype_label:strain,cohort:geno,updated_by:USER.id,updated_at:new Date().toISOString()}});
+    await audit('mice',id,'FIX_STRAIN_GENO',null,{genotype_label:strain,cohort:geno});
+    if(strain) ensureCohort(strain); // keep the strain in the reusable vocab
+    toast('Saved'); tr.remove();
+  }catch(e){ btn.disabled=false; toast('Save failed: '+e.message); }
+};
 function rangeStr(from,to){ from=(from||'').trim(); to=(to||'').trim(); if(!from&&!to)return null; if(!to||to===from)return from||to; return from+'-'+to; }
 function buildLoc(o){ const p=[]; if(o.facility)p.push(o.facility); if(o.room)p.push('Rm '+o.room); if(o.rack)p.push('Rack '+o.rack);
   const rc=[o.rack_row&&('r'+o.rack_row),o.rack_col&&('c'+o.rack_col)].filter(Boolean).join('/'); if(rc)p.push(rc);
@@ -762,7 +834,7 @@ $('logout').onclick=()=>{ localStorage.removeItem('mc:user'); localStorage.remov
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>switchTab(t.dataset.tab));
 function switchTab(name){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
-  ['colony','mine','map','add','import','people','requests','needs','myreq','graveyard','guardians'].forEach(n=>$('tab-'+n).classList.toggle('hidden',n!==name));
+  ['colony','mine','map','add','import','people','requests','needs','myreq','graveyard','guardians','reversal'].forEach(n=>$('tab-'+n).classList.toggle('hidden',n!==name));
   if(name==='people') renderPeople();
   if(name==='requests') renderRequests();
   if(name==='needs') renderNeeds();
@@ -771,6 +843,7 @@ function switchTab(name){
   if(name==='myreq') renderMyReq();
   if(name==='graveyard') renderGraveyard();
   if(name==='guardians') renderGuardians();
+  if(name==='reversal') renderReversal();
 }
 
 // ---------- colony table ----------
@@ -808,7 +881,8 @@ function buildQuery(forExport){
   const q=$('fSearch').value.trim();
   if(q){ const t=encodeURIComponent('*'+q+'*'); p.push(`or=(tag_id.ilike."${t}",genotype_label.ilike."${t}")`); } // quote values so , . ( ) in the search don't split the or()
   if($('fSex').value) p.push('sex=eq.'+$('fSex').value);
-  if($('fCohort').value) p.push('cohort=eq.'+encodeURIComponent($('fCohort').value));
+  if($('fStrain').value) p.push('genotype_label=eq.'+encodeURIComponent($('fStrain').value)); // Strain = genotype_label field
+  if($('fCohort').value) p.push('cohort=eq.'+encodeURIComponent($('fCohort').value)); // Genotype = cohort field
   if($('fFac').value) p.push('facility=eq.'+encodeURIComponent($('fFac').value));
   if($('fStatus').value && !q) p.push('status=eq.'+$('fStatus').value); // when searching a specific mouse #, show it whatever its status (alive/dead/…)
   if($('fAgeMin').value) p.push('age_months=gte.'+$('fAgeMin').value);
@@ -984,8 +1058,8 @@ function fillBatchValue(){ const f=$('batchField').value;
   else o=STATUSES.map(s=>`<option>${s}</option>`).join('');
   $('batchValWrap').innerHTML=`<select class="in" id="batchValue">${o}</select>`; }
 ['fSearch','fLoc'].forEach(id=>$(id).addEventListener('input',debounce(()=>{SEL.clear();page=0;loadColony();},300))); // changing the filtered set drops the selection so a batch op can't hit rows you can no longer see
-['fSex','fCohort','fFac','fStatus','fAgeMin','fAgeMax','fOwner'].forEach(id=>$(id).addEventListener('change',()=>{SEL.clear();syncMine();page=0;loadColony();}));
-$('fClear').onclick=()=>{['fSearch','fLoc','fAgeMin','fAgeMax'].forEach(i=>$(i).value='');['fSex','fCohort','fFac','fOwner'].forEach(i=>$(i).value='');$('fStatus').value='';SEL.clear();syncMine();page=0;loadColony();};
+['fSex','fStrain','fCohort','fFac','fStatus','fAgeMin','fAgeMax','fOwner'].forEach(id=>$(id).addEventListener('change',()=>{SEL.clear();syncMine();page=0;loadColony();}));
+$('fClear').onclick=()=>{['fSearch','fLoc','fAgeMin','fAgeMax'].forEach(i=>$(i).value='');['fSex','fStrain','fCohort','fFac','fOwner'].forEach(i=>$(i).value='');$('fStatus').value='';SEL.clear();syncMine();page=0;loadColony();};
 $('prev').onclick=()=>{if(page>0){page--;loadColony();}};
 $('next').onclick=()=>{if((page+1)*pageSize<total){page++;loadColony();}};
 function debounce(fn,ms){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);};}
@@ -2019,8 +2093,8 @@ async function renderPeople(){
   if($('pwAdmin')) $('pwAdmin').style.display=adm?'':'none'; // default + master password setters are Web-maintainer-only
   // refresh owner filters/selects with new users
   $('fOwner').innerHTML='<option value="">any</option>'+USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
-  $('fCohort').innerHTML='<option value="">any</option>'+COHORTS.map(c=>`<option>${esc(c)}</option>`).join('');
   $('fFac').innerHTML='<option value="">any</option>'+FACILITIES.map(f=>`<option>${esc(f)}</option>`).join('');
+  fillFacets(); // keep Strain/Genotype filter options (from distinct DB values) after refreshing people
 }
 $('addPerson').onclick=async()=>{
   const name=$('newPersonName').value.trim(); const role=$('newPersonRole').value;
@@ -2876,8 +2950,8 @@ async function boot(){
   try{ await api('mouse_v?select=batch_id,dob_estimated,facility,cage,breeding&limit=0'); await api('requests?select=assignee_ids,request_type,mice_info&limit=0'); await api('guardian_angels?select=id&limit=0'); await api('app_users?select=must_change_password&limit=0'); await api('angel_reactions?select=id&limit=0'); }catch(_){ showMigrationBanner(); } // a migration hasn't been run yet → warn instead of cryptic save errors
   // populate selects that persist across screens
   $('fOwner').innerHTML='<option value="">any</option>'+USERS.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
-  $('fCohort').innerHTML='<option value="">any</option>'+COHORTS.map(c=>`<option>${esc(c)}</option>`).join('');
   $('fFac').innerHTML='<option value="">any</option>'+FACILITIES.map(f=>`<option>${esc(f)}</option>`).join('');
+  loadFacets(); // fills the Strain + Genotype filters from actual distinct DB values
   fillBatchValue();
   if(USER&&USER.id){ startApp('resume'); } else { showLogin(); }
 }
