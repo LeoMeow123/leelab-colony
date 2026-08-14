@@ -31,9 +31,9 @@ All data lives here, in tables:
   **Strain vs genotype (counterintuitive):** by lab convention *strain* = the line
   (WT, Tau, APP) and lives in the `cohort` column; *genotype* = the construct/zygosity
   (C57BL/6, hMAP, +/+) and lives in the `genotype_label` column — i.e. despite the names,
-  `genotype_label` holds the genotype and `cohort` holds the strain. The **⚠ Strain/Geno
-  fix** tab cleans up mice where those got misfiled: it auto-fixes the clear *swaps*
-  (the two fields simply trade places — lossless) and lists the rest for a human to verify.
+  `genotype_label` holds the genotype and `cohort` holds the strain. A one-time cleanup
+  (Aug 2026) corrected the mice where those two fields had been swapped or misfiled, so
+  the whole table now follows this mapping.
 - `mouse_v` — a *view* over `mice` that adds computed age + a "stale" flag.
 - `app_users` — the people (name, **role**, email, and each person's **own
   password hash** + a "must set a password" flag).

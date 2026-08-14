@@ -317,7 +317,6 @@
       <button class="tab" data-tab="graveyard">🕯️ In Memoriam</button>
       <button class="tab" data-tab="guardians">😇 Guardian Angels</button>
       <button class="tab" data-tab="people">People</button>
-      <button class="tab" data-tab="reversal">⚠ Strain/Geno fix</button>
     </div>
     <div class="who"><span id="imperBanner" class="hidden" style="background:var(--amber);color:#fff;padding:2px 8px;border-radius:8px;font-size:12px;margin-right:8px"></span><span>👤 <b id="whoName"></b> <span class="pill" id="whoRole"></span></span><button class="btn sm" id="changePw" title="Change your password">🔑</button><button class="btn sm" id="themeToggle" title="Light / dark">☾</button><button class="btn sm" id="logout">Logout</button></div>
   </header>
@@ -501,11 +500,6 @@
     </div>
     <div id="needsList"></div>
   </div>
-
-  <!-- STRAIN / GENOTYPE CLEANUP (reversal scanner) -->
-  <div class="wrap hidden" id="tab-reversal">
-    <div id="revBody"></div>
-  </div>
 </div>
 <datalist id="cohortDL"></datalist>
 
@@ -618,73 +612,6 @@ async function loadFacets(){
   fillFacets();
 }
 
-// ---------- Strain / Genotype reversal scanner ----------
-// Strain = the coarse line (WT, Tau, APP, APP-NL-F) → cohort field.
-// Genotype = the construct/zygosity (C57BL/6, hMAP, +/+, +/-) → genotype_label field.
-function revIsZyg(v){ v=String(v||'').trim(); if(!v) return false; if(/\b(het|hom|homozyg|heterozyg)\b/i.test(v)) return true; return /[+\-]/.test(v)&&/^[+\-\/f?,\s()]+$/i.test(v); }
-function revIsStrainName(v){ v=String(v||'').trim(); return /^(WT|Tau|APP|APP-?NL-?F|APP-?NL-?F\/Tau|PD)$/i.test(v); } // a coarse strain-group name
-function revFlag(m){ return revIsZyg(m.cohort) || revIsStrainName(m.genotype_label); }    // zygosity in Strain field, or strain name in Genotype field
-function revIsSwap(m){ return revIsZyg(m.cohort) && revIsStrainName(m.genotype_label); }   // the two fields hold each other's value → clean swap
-let REV_SURE=[]; // [{id,patch}] — current very-sure (swap) set
-async function renderReversal(){
-  const host=$('revBody'); if(!host) return; host.innerHTML='<div class="sub" style="color:var(--muted)">Scanning colony…</div>';
-  let all=[]; try{ for(let from=0;;from+=1000){ const r=await api(`mouse_v?select=id,tag_id,cohort,genotype_label,status,owner_name&order=tag_id.asc.nullslast&limit=1000&offset=${from}`); const b=r.data||[]; all=all.concat(b); if(b.length<1000)break; } }
-  catch(e){ host.innerHTML='<div class="empty">Scan failed: '+esc(e.message)+'</div>'; return; }
-  const flagged=all.filter(revFlag); const mgr=isMgr();
-  const swaps=flagged.filter(revIsSwap);
-  const verify=flagged.filter(m=>!revIsSwap(m));
-  REV_SURE=swaps.map(m=>({id:m.id, patch:{cohort:m.genotype_label, genotype_label:m.cohort}}));  // swap the two fields
-  const preview=[...new Set(swaps.map(m=>`${esc(m.genotype_label)} ⇄ ${esc(m.cohort)}`))].slice(0,5).join(' · ');
-  host.innerHTML=`
-    <div style="margin-bottom:12px">
-      <h1 style="font-size:17px;margin:0 0 4px">⚠ Strain / Genotype cleanup</h1>
-      <div class="sub" style="color:var(--muted);font-size:12px"><b>Strain</b> = the line (WT, Tau, APP) · <b>Genotype</b> = the construct / zygosity (C57BL/6, hMAP, +/+). Finds mice with a genotype in the Strain field, or a strain name in the Genotype field.</div>
-      <div style="margin-top:6px"><button class="btn sm" onclick="renderReversal()">↻ Rescan</button></div>
-    </div>
-    <div style="margin-bottom:18px">
-      <div style="font-weight:700;margin-bottom:2px">✅ Very sure — swaps: ${swaps.length}</div>
-      <div class="sub" style="color:var(--muted);font-size:12px">The Strain field holds a genotype AND the Genotype field holds a strain name — they just trade places${preview?' (e.g. '+preview+')':''}. Lossless.</div>
-      ${swaps.length?(mgr?`<div style="margin-top:8px"><button class="btn p" onclick="revAutoFix()">✓ Auto-fix ${swaps.length} swaps</button></div>`:'<div class="sub" style="color:var(--amber);font-size:11px;margin-top:6px">A manager can run the auto-fix.</div>'):''}
-    </div>
-    <div>
-      <div style="font-weight:700;margin-bottom:2px">🔎 Needs verification: ${verify.length}</div>
-      <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:8px">Mostly a zygosity (e.g. <code>+/+</code>) sitting in the Strain field where the real strain is unknown. Leave for someone to verify — or fix a row and Save. Strain = the line (WT/Tau/APP); Genotype = construct/zygosity.${mgr?'':' <b>(view-only)</b>'}</div>
-      <div class="tablewrap"><table>
-        <thead><tr><th>Mouse #</th><th>Owner</th><th>Strain (line)</th><th>Genotype (construct / zygosity)</th><th></th></tr></thead>
-        <tbody>${verify.slice(0,300).map(m=>`<tr data-id="${esc(m.id)}">
-          <td><b>${esc(m.tag_id||'—')}</b></td>
-          <td class="sub" style="font-size:11px">${esc(m.owner_name||'')}</td>
-          <td><input class="in rv-s" list="cohortDL" value="${esc(m.cohort||'')}" style="min-width:130px" placeholder="WT, Tau, APP…" ${mgr?'':'disabled'}></td>
-          <td><input class="in rv-g" value="${esc(m.genotype_label||'')}" style="min-width:170px" ${mgr?'':'disabled'}></td>
-          <td>${mgr?`<button class="btn p sm" onclick="revSave('${esc(m.id)}',this)">Save</button>`:''}</td>
-        </tr>`).join('')||`<tr><td colspan="5" class="empty">🎉 Nothing left to verify.</td></tr>`}</tbody>
-      </table></div>
-      ${verify.length>300?`<div class="sub" style="color:var(--muted);font-size:11px;margin-top:6px">Showing first 300 of ${verify.length}. Save rows (or run the auto-fix) and Rescan to see more.</div>`:''}
-    </div>`;
-}
-window.revAutoFix=async function(){
-  if(!isMgr()){ toast('Managers only'); return; }
-  if(!REV_SURE.length){ toast('Nothing to auto-fix'); return; }
-  if(!confirm(`Auto-fix ${REV_SURE.length} swaps?\n\nSwaps the Strain and Genotype fields for mice where they hold each other's value (e.g. Strain "+/+" + Genotype "APP-NL-F" → Strain "APP-NL-F" + Genotype "+/+"). Lossless, audited, reversible (backup saved).`)) return;
-  let done=0;
-  try{ for(const r of REV_SURE){ await api(`mice?id=eq.${r.id}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:Object.assign({},r.patch,{updated_by:USER.id,updated_at:new Date().toISOString()})}); done++; }
-    await audit('mice',null,'AUTOFIX_STRAIN_GENO_SWAP',null,{count:done,rule:'swapped Strain(cohort) and Genotype(genotype_label) where each held the other'});
-    await loadFacets(); toast(`Auto-fixed ${done}`); renderReversal();
-  }catch(e){ toast(`Fixed ${done}, then failed: ${e.message}`); renderReversal(); }
-};
-window.revUse=function(btn){ const tr=btn.closest('tr'); if(!tr)return; tr.querySelector('.rv-s').value=btn.dataset.s||''; tr.querySelector('.rv-g').value=btn.dataset.g||''; };
-window.revSave=async function(id,btn){
-  if(!isMgr()){ toast('Managers only'); return; }
-  const tr=btn.closest('tr'); if(!tr)return;
-  const strain=tr.querySelector('.rv-s').value.trim()||null, geno=tr.querySelector('.rv-g').value.trim()||null;
-  btn.disabled=true;
-  try{
-    await api(`mice?id=eq.${id}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:{cohort:strain,genotype_label:geno,updated_by:USER.id,updated_at:new Date().toISOString()}});
-    await audit('mice',id,'FIX_STRAIN_GENO',null,{cohort:strain,genotype_label:geno});
-    if(strain) ensureCohort(strain); // keep the strain in the reusable vocab (Strain = cohort field)
-    toast('Saved'); tr.remove();
-  }catch(e){ btn.disabled=false; toast('Save failed: '+e.message); }
-};
 function rangeStr(from,to){ from=(from||'').trim(); to=(to||'').trim(); if(!from&&!to)return null; if(!to||to===from)return from||to; return from+'-'+to; }
 function buildLoc(o){ const p=[]; if(o.facility)p.push(o.facility); if(o.room)p.push('Rm '+o.room); if(o.rack)p.push('Rack '+o.rack);
   const rc=[o.rack_row&&('r'+o.rack_row),o.rack_col&&('c'+o.rack_col)].filter(Boolean).join('/'); if(rc)p.push(rc);
@@ -851,7 +778,7 @@ $('logout').onclick=()=>{ localStorage.removeItem('mc:user'); localStorage.remov
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>switchTab(t.dataset.tab));
 function switchTab(name){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
-  ['colony','mine','map','add','import','people','requests','needs','myreq','graveyard','guardians','reversal'].forEach(n=>$('tab-'+n).classList.toggle('hidden',n!==name));
+  ['colony','mine','map','add','import','people','requests','needs','myreq','graveyard','guardians'].forEach(n=>$('tab-'+n).classList.toggle('hidden',n!==name));
   if(name==='people') renderPeople();
   if(name==='requests') renderRequests();
   if(name==='needs') renderNeeds();
@@ -859,9 +786,7 @@ function switchTab(name){
   if(name==='map') renderMap(true); // always refetch on open so newly added/edited mice show up
   if(name==='myreq') renderMyReq();
   if(name==='graveyard') renderGraveyard();
-  if(name==='guardians') renderGuardians();
-  if(name==='reversal') renderReversal();
-}
+  if(name==='guardians') renderGuardians();}
 
 // ---------- colony table ----------
 const COLS=[

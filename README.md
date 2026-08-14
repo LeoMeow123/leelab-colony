@@ -61,7 +61,6 @@ in Supabase Auth + RLS later makes it hard enforcement **without schema changes*
 - **🕯️ In Memoriam:** a memorial grid for dead / sacrificed / collected mice.
 - **😇 Guardian Angels:** upload the lab’s guardian angels — pets, kids, whoever watches over you (photo resized in-browser); they appear here and on the colony. On every visit a random pet greets you with a species sound, the San-Diego time, and a warm message — react with ❤️🥰🤗😢 (tallied per pet; recorded once a day).
 - **People:** add members, set roles, and set the shared password.
-- **⚠ Strain/Geno fix:** a manager-only data-cleanup tab that scans every mouse for misfiled strain/genotype. **Very-sure swaps** — where the Strain field holds a genotype *and* the Genotype field holds a strain name (e.g. Strain `+/+` / Genotype `APP-NL-F`) — get a one-click, **lossless** auto-fix (the two fields simply trade places). Everything else lands in an editable **needs-verification** list for a human to check. All changes are audited.
 
 ## What's stored
 Normalized Postgres: `mice` (hub; `id` = the only global key, `tag_id` = non-unique
