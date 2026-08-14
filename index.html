@@ -612,70 +612,63 @@ function fillFacets(){
 }
 async function loadFacets(){
   try{ let all=[]; for(let from=0;;from+=1000){ const r=await api(`mouse_v?select=genotype_label,cohort&limit=1000&offset=${from}`); const b=r.data||[]; all=all.concat(b); if(b.length<1000)break; }
-    STRAINS=[...new Set(all.map(m=>m.genotype_label).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b)));
-    GENOS=[...new Set(all.map(m=>m.cohort).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b)));
+    STRAINS=[...new Set(all.map(m=>m.cohort).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b)));        // Strain = cohort
+    GENOS=[...new Set(all.map(m=>m.genotype_label).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b)));  // Genotype = genotype_label
   }catch(_){}
   fillFacets();
 }
 
 // ---------- Strain / Genotype reversal scanner ----------
-// Strain = the line (APP, Tau, WT, Cre lines) → genotype_label field.  Genotype = zygosity (+/+, +/-, -/-) → cohort field.
-const REV_STRAIN=/(APP|Tau|\bWT\b|\bPD\b|Cdh18|SOD1|C57|BL\/?6|5xFAD|3xTg|APOE|Cre|flox|ChAT|Nrgl|Dbh|\bPV\b|\bSom\b|Myf5|CDK|Riken|Jax|Nex|hMAP|\bMAP\b|\bKI\b|\bKO\b|em1|IMPC|Mmjax|5Ht3a|V321L|S305N|NL-?F|Flpo)/i;
+// Strain = the coarse line (WT, Tau, APP, APP-NL-F) → cohort field.
+// Genotype = the construct/zygosity (C57BL/6, hMAP, +/+, +/-) → genotype_label field.
 function revIsZyg(v){ v=String(v||'').trim(); if(!v) return false; if(/\b(het|hom|homozyg|heterozyg)\b/i.test(v)) return true; return /[+\-]/.test(v)&&/^[+\-\/f?,\s()]+$/i.test(v); }
-function revIsStrain(v){ v=String(v||'').trim(); return !!v && REV_STRAIN.test(v); }
-function revFlag(m){ return revIsZyg(m.genotype_label) || (revIsStrain(m.cohort)&&!revIsZyg(m.cohort)); }
-function revZyg(v){ const m=String(v||'').match(/[+\-]\/[+\-]|HET\s*\([^)]*\)|HOM\s*\([^)]*\)|\bHET\b|\bHOM\b/i); return m?m[0].trim():''; }
-function revStrainPart(v){ return String(v||'').replace(/\([^)]*\)/g,'').replace(/[+\-]\/[+\-]/g,'').replace(/\b(HET|HOM)\b/ig,'').replace(/,/g,' ').trim(); }
-function revExplicitZyg(v){ const m=String(v||'').match(/[+\-]\/[+\-]/); return m?m[0]:''; } // an explicit +/+ , +/- , -/- written in the Genotype field
-let REV_SURE=[]; // [{id,patch}] — the current very-sure auto-fixable set
-function revSuggest(m){ const gl=String(m.genotype_label||''), co=String(m.cohort||'');
-  const glZyg=revIsZyg(gl), coStrain=revIsStrain(co)&&!revIsZyg(co);
-  if(glZyg&&coStrain) return { strain: revStrainPart(co)||co, genotype: gl };              // true swap → put each back
-  if(coStrain) return { strain: gl||revStrainPart(co)||co, genotype: revZyg(co) };          // strain leaked into the Genotype field
-  if(glZyg) return { strain:'', genotype: gl };                                             // zygosity sitting in the Strain field
-  return { strain: gl, genotype: co }; }
+function revIsStrainName(v){ v=String(v||'').trim(); return /^(WT|Tau|APP|APP-?NL-?F|APP-?NL-?F\/Tau|PD)$/i.test(v); } // a coarse strain-group name
+function revFlag(m){ return revIsZyg(m.cohort) || revIsStrainName(m.genotype_label); }    // zygosity in Strain field, or strain name in Genotype field
+function revIsSwap(m){ return revIsZyg(m.cohort) && revIsStrainName(m.genotype_label); }   // the two fields hold each other's value → clean swap
+let REV_SURE=[]; // [{id,patch}] — current very-sure (swap) set
 async function renderReversal(){
   const host=$('revBody'); if(!host) return; host.innerHTML='<div class="sub" style="color:var(--muted)">Scanning colony…</div>';
   let all=[]; try{ for(let from=0;;from+=1000){ const r=await api(`mouse_v?select=id,tag_id,cohort,genotype_label,status,owner_name&order=tag_id.asc.nullslast&limit=1000&offset=${from}`); const b=r.data||[]; all=all.concat(b); if(b.length<1000)break; } }
   catch(e){ host.innerHTML='<div class="empty">Scan failed: '+esc(e.message)+'</div>'; return; }
   const flagged=all.filter(revFlag); const mgr=isMgr();
-  const sure=flagged.filter(m=>revExplicitZyg(m.cohort));          // genotype field literally contains +/+ , +/- , -/-
-  const uncertain=flagged.filter(m=>!revExplicitZyg(m.cohort));    // bare strain name — zygosity unknown
-  REV_SURE=sure.map(m=>{ const patch={cohort:revExplicitZyg(m.cohort)}; if(!String(m.genotype_label||'').trim()) patch.genotype_label=revStrainPart(m.cohort)||null; return {id:m.id, patch}; });
-  const preview=sure.slice(0,6).map(m=>`<code>${esc(m.cohort)}</code>→<b>${esc(revExplicitZyg(m.cohort))}</b>`).join(' · ');
+  const swaps=flagged.filter(revIsSwap);
+  const verify=flagged.filter(m=>!revIsSwap(m));
+  REV_SURE=swaps.map(m=>({id:m.id, patch:{cohort:m.genotype_label, genotype_label:m.cohort}}));  // swap the two fields
+  const preview=[...new Set(swaps.map(m=>`${esc(m.genotype_label)} ⇄ ${esc(m.cohort)}`))].slice(0,5).join(' · ');
   host.innerHTML=`
     <div style="margin-bottom:12px">
       <h1 style="font-size:17px;margin:0 0 4px">⚠ Strain / Genotype cleanup</h1>
-      <div class="sub" style="color:var(--muted);font-size:12px"><b>Strain</b> = the line (APP, Tau, WT, Cre lines) · <b>Genotype</b> = zygosity (+/+, +/-, -/-). Finds mice where a strain name landed in the Genotype field.</div>
+      <div class="sub" style="color:var(--muted);font-size:12px"><b>Strain</b> = the line (WT, Tau, APP) · <b>Genotype</b> = the construct / zygosity (C57BL/6, hMAP, +/+). Finds mice with a genotype in the Strain field, or a strain name in the Genotype field.</div>
       <div style="margin-top:6px"><button class="btn sm" onclick="renderReversal()">↻ Rescan</button></div>
     </div>
     <div style="margin-bottom:18px">
-      <div style="font-weight:700;margin-bottom:2px">✅ Very sure — auto-fixable: ${sure.length}</div>
-      <div class="sub" style="color:var(--muted);font-size:12px">Genotype field already has the explicit zygosity${preview?': '+preview:''}. Auto-fix sets Genotype to the clean zygosity and keeps the Strain untouched.</div>
-      ${sure.length?(mgr?`<div style="margin-top:8px"><button class="btn p" onclick="revAutoFix()">✓ Auto-fix ${sure.length} very-sure rows</button></div>`:'<div class="sub" style="color:var(--amber);font-size:11px;margin-top:6px">A manager can run the auto-fix.</div>'):''}
+      <div style="font-weight:700;margin-bottom:2px">✅ Very sure — swaps: ${swaps.length}</div>
+      <div class="sub" style="color:var(--muted);font-size:12px">The Strain field holds a genotype AND the Genotype field holds a strain name — they just trade places${preview?' (e.g. '+preview+')':''}. Lossless.</div>
+      ${swaps.length?(mgr?`<div style="margin-top:8px"><button class="btn p" onclick="revAutoFix()">✓ Auto-fix ${swaps.length} swaps</button></div>`:'<div class="sub" style="color:var(--amber);font-size:11px;margin-top:6px">A manager can run the auto-fix.</div>'):''}
     </div>
     <div>
-      <div style="font-weight:700;margin-bottom:2px">🔎 Needs verification: ${uncertain.length}</div>
-      <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:8px">A strain name is in the Genotype field but the zygosity can't be inferred (e.g. <code>Tau</code>, <code>WT</code>, <code>APP-NL-F</code>). Leave for someone to verify — or fix a row and Save.${mgr?'':' <b>(view-only)</b>'}</div>
+      <div style="font-weight:700;margin-bottom:2px">🔎 Needs verification: ${verify.length}</div>
+      <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:8px">Mostly a zygosity (e.g. <code>+/+</code>) sitting in the Strain field where the real strain is unknown. Leave for someone to verify — or fix a row and Save. Strain = the line (WT/Tau/APP); Genotype = construct/zygosity.${mgr?'':' <b>(view-only)</b>'}</div>
       <div class="tablewrap"><table>
-        <thead><tr><th>Mouse #</th><th>Owner</th><th>Strain (line)</th><th>Genotype (zygosity)</th><th></th></tr></thead>
-        <tbody>${uncertain.map(m=>`<tr data-id="${esc(m.id)}">
+        <thead><tr><th>Mouse #</th><th>Owner</th><th>Strain (line)</th><th>Genotype (construct / zygosity)</th><th></th></tr></thead>
+        <tbody>${verify.slice(0,300).map(m=>`<tr data-id="${esc(m.id)}">
           <td><b>${esc(m.tag_id||'—')}</b></td>
           <td class="sub" style="font-size:11px">${esc(m.owner_name||'')}</td>
-          <td><input class="in rv-s" list="cohortDL" value="${esc(m.genotype_label||'')}" style="min-width:150px" ${mgr?'':'disabled'}></td>
-          <td><input class="in rv-g" value="${esc(m.cohort||'')}" style="min-width:110px" placeholder="+/+, +/-, -/-" ${mgr?'':'disabled'}></td>
+          <td><input class="in rv-s" list="cohortDL" value="${esc(m.cohort||'')}" style="min-width:130px" placeholder="WT, Tau, APP…" ${mgr?'':'disabled'}></td>
+          <td><input class="in rv-g" value="${esc(m.genotype_label||'')}" style="min-width:170px" ${mgr?'':'disabled'}></td>
           <td>${mgr?`<button class="btn p sm" onclick="revSave('${esc(m.id)}',this)">Save</button>`:''}</td>
         </tr>`).join('')||`<tr><td colspan="5" class="empty">🎉 Nothing left to verify.</td></tr>`}</tbody>
       </table></div>
+      ${verify.length>300?`<div class="sub" style="color:var(--muted);font-size:11px;margin-top:6px">Showing first 300 of ${verify.length}. Save rows (or run the auto-fix) and Rescan to see more.</div>`:''}
     </div>`;
 }
 window.revAutoFix=async function(){
   if(!isMgr()){ toast('Managers only'); return; }
   if(!REV_SURE.length){ toast('Nothing to auto-fix'); return; }
-  if(!confirm(`Auto-fix ${REV_SURE.length} very-sure rows?\n\nSets the Genotype field to the explicit zygosity (e.g. "WT (+/+)" → "+/+") and keeps the Strain. Audited and reversible (backup saved).`)) return;
+  if(!confirm(`Auto-fix ${REV_SURE.length} swaps?\n\nSwaps the Strain and Genotype fields for mice where they hold each other's value (e.g. Strain "+/+" + Genotype "APP-NL-F" → Strain "APP-NL-F" + Genotype "+/+"). Lossless, audited, reversible (backup saved).`)) return;
   let done=0;
   try{ for(const r of REV_SURE){ await api(`mice?id=eq.${r.id}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:Object.assign({},r.patch,{updated_by:USER.id,updated_at:new Date().toISOString()})}); done++; }
-    await audit('mice',null,'AUTOFIX_STRAIN_GENO',null,{count:done,rule:'extracted explicit zygosity from Genotype field'});
+    await audit('mice',null,'AUTOFIX_STRAIN_GENO_SWAP',null,{count:done,rule:'swapped Strain(cohort) and Genotype(genotype_label) where each held the other'});
     await loadFacets(); toast(`Auto-fixed ${done}`); renderReversal();
   }catch(e){ toast(`Fixed ${done}, then failed: ${e.message}`); renderReversal(); }
 };
@@ -686,9 +679,9 @@ window.revSave=async function(id,btn){
   const strain=tr.querySelector('.rv-s').value.trim()||null, geno=tr.querySelector('.rv-g').value.trim()||null;
   btn.disabled=true;
   try{
-    await api(`mice?id=eq.${id}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:{genotype_label:strain,cohort:geno,updated_by:USER.id,updated_at:new Date().toISOString()}});
-    await audit('mice',id,'FIX_STRAIN_GENO',null,{genotype_label:strain,cohort:geno});
-    if(strain) ensureCohort(strain); // keep the strain in the reusable vocab
+    await api(`mice?id=eq.${id}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:{cohort:strain,genotype_label:geno,updated_by:USER.id,updated_at:new Date().toISOString()}});
+    await audit('mice',id,'FIX_STRAIN_GENO',null,{cohort:strain,genotype_label:geno});
+    if(strain) ensureCohort(strain); // keep the strain in the reusable vocab (Strain = cohort field)
     toast('Saved'); tr.remove();
   }catch(e){ btn.disabled=false; toast('Save failed: '+e.message); }
 };
@@ -872,8 +865,8 @@ function switchTab(name){
 
 // ---------- colony table ----------
 const COLS=[
-  {k:'tag_id',label:'Mouse #'},{k:'sex',label:'Sex'},{k:'genotype_label',label:'Strain'},
-  {k:'cohort',label:'Genotype'},{k:'age_months',label:'Age (mo)'},
+  {k:'tag_id',label:'Mouse #'},{k:'sex',label:'Sex'},{k:'cohort',label:'Strain'},
+  {k:'genotype_label',label:'Genotype'},{k:'age_months',label:'Age (mo)'},
   {k:'current_location',label:'Location'},{k:'owner_name',label:'Owner'},{k:'status',label:'Status'},
   {k:'experiments',label:'Experiment'},
 ];
@@ -888,7 +881,7 @@ let SEL=new Set(); // selected mouse ids for batch actions (persists across page
 let viewMode='ind'; // 'ind' = one row per mouse, 'grp' = collapsed by genotype·sex·age·status
 let HAS_BREEDING=false; // set at boot once migration_010 (breeding column) is present; gates all breeding features
 let grpSortKey='', grpSortDir='asc', GRP_ROWS=[]; // grouped-view sort (client-side over the fetched rows)
-const GCOLS=[{k:'genotype_label',label:'Strain'},{k:'cohort',label:'Genotype'},{k:'sex',label:'Sex'},{k:'age_months',label:'Age (mo)'},{k:'count',label:'Count'},{k:'owner',label:'Owner'},{k:'location',label:'Location'},{k:'status',label:'Status'}];
+const GCOLS=[{k:'cohort',label:'Strain'},{k:'genotype_label',label:'Genotype'},{k:'sex',label:'Sex'},{k:'age_months',label:'Age (mo)'},{k:'count',label:'Count'},{k:'owner',label:'Owner'},{k:'location',label:'Location'},{k:'status',label:'Status'}];
 function cmpVal(a,b,dir){ if(a==null&&b==null)return 0; if(a==null)return 1; if(b==null)return -1; // nulls last
   const r=(typeof a==='number'&&typeof b==='number')?a-b:String(a).localeCompare(String(b)); return dir==='desc'?-r:r; }
 function grpVal(grp,k){ const ms=grp.ms, g=grp.g;
@@ -905,8 +898,8 @@ function buildQuery(forExport){
   const q=$('fSearch').value.trim();
   if(q){ const t=encodeURIComponent('*'+q+'*'); p.push(`or=(tag_id.ilike."${t}",genotype_label.ilike."${t}")`); } // quote values so , . ( ) in the search don't split the or()
   if($('fSex').value) p.push('sex=eq.'+$('fSex').value);
-  if($('fStrain').value) p.push('genotype_label=eq.'+encodeURIComponent($('fStrain').value)); // Strain = genotype_label field
-  if($('fCohort').value) p.push('cohort=eq.'+encodeURIComponent($('fCohort').value)); // Genotype = cohort field
+  if($('fStrain').value) p.push('cohort=eq.'+encodeURIComponent($('fStrain').value)); // Strain = cohort field
+  if($('fCohort').value) p.push('genotype_label=eq.'+encodeURIComponent($('fCohort').value)); // Genotype = genotype_label field
   if($('fFac').value) p.push('facility=eq.'+encodeURIComponent($('fFac').value));
   if($('fStatus').value && !q) p.push('status=eq.'+$('fStatus').value); // when searching a specific mouse #, show it whatever its status (alive/dead/…)
   if($('fAgeMin').value) p.push('age_months=gte.'+$('fAgeMin').value);
@@ -1000,8 +993,8 @@ function renderGroups(rows){
     const ms=grp.ms, g=grp.g, ids=ms.map(m=>m.id), allSel=ids.every(id=>SEL.has(id));
     html+=`<tr class="grp" data-gi="${gi}" data-ids="${esc(ids.join(','))}">
       <td class="selcol"><input type="checkbox" class="grpsel"${allSel?' checked':''}></td>
-      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis"><span class="caret">▸</span> ${esc(g.genotype_label||'—')}</td>
-      <td class="cohort">${esc(g.cohort||'—')}</td>
+      <td class="cohort"><span class="caret">▸</span> ${esc(g.cohort||'—')}</td>
+      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis">${esc(g.genotype_label||'—')}</td>
       <td>${esc(g.sex||'—')}</td>
       <td>${g.age_months!=null?(g.dob_estimated?'~':'')+g.age_months:'—'}</td>
       <td><b>${ms.length}</b></td>
@@ -1041,8 +1034,8 @@ function renderRows(rows){
     <td class="selcol"><input type="checkbox" class="rowsel" data-id="${m.id}"${SEL.has(m.id)?' checked':''}></td>
     <td><b>${esc(m.tag_id||'—')}</b></td>
     <td>${esc(m.sex||'')}</td>
-    <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${esc(m.genotype_label||'')}</td>
     <td class="cohort">${esc(m.cohort||'')}</td>
+    <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${esc(m.genotype_label||'')}</td>
     <td>${m.age_months!=null?(m.dob_estimated?'~':'')+m.age_months:'—'}</td>
     <td>${esc(m.current_location||'')}</td>
     <td>${esc(m.owner_name||'')}</td>
